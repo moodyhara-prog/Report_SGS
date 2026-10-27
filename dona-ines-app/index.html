@@ -199,7 +199,10 @@ details summary{cursor:pointer;font-weight:600;color:var(--muted);min-height:36p
         <p class="muted" id="hoje">Controle de remédios</p>
       </div>
     </div>
-    <button class="btn primary" id="btnCompraTopo" type="button">+ Registrar compra</button>
+    <div class="row">
+      <button class="btn" type="button" data-act="cupom">Foto do cupom</button>
+      <button class="btn primary" id="btnCompraTopo" type="button">+ Registrar compra</button>
+    </div>
   </header>
 
   <div id="banner"></div>
@@ -765,7 +768,7 @@ function renderCompras() {
       <td class="r"><b>${BRL.format(num(c.caixas) * num(c.valorCaixa))}</b></td><td class="r">${d ? plural(Math.floor(un / d), "dia") : "—"}</td>
       <td class="r"><button class="btn ghost" type="button" data-act="editcp" data-id="${esc(c.id)}" style="min-height:32px">Editar</button><button class="btn ghost" type="button" data-act="delcp" data-id="${esc(c.id)}" style="min-height:32px;color:var(--bad)">Apagar</button></td></tr>`;
   }).join("");
-  el.innerHTML = `<div class="row between"><h2>Histórico de compras</h2><button class="btn primary" type="button" data-act="comprar">+ Registrar compra</button></div>
+  el.innerHTML = `<div class="row between"><h2>Histórico de compras</h2><div class="row"><button class="btn" type="button" data-act="cupom">Foto do cupom</button><button class="btn primary" type="button" data-act="comprar">+ Registrar compra</button></div></div>
     ${list.length ? `<div class="panel"><div class="tbl-wrap"><table>
       <thead><tr><th>Data</th><th>Remédio</th><th class="r">Cx × un.</th><th class="r">R$/cx</th><th class="r">Total</th><th class="r">Dura</th><th class="r"><span hidden>Ações</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div></div>`
@@ -858,7 +861,7 @@ function renderHigiene() {
   const hist = state.higieneCompras.slice().sort((a, b) => String(b.data).localeCompare(String(a.data))).slice(0, 30);
   el.innerHTML = `
     <div class="row between"><div><h2>Produtos de higiene</h2><p class="small muted">Gasto mensal estimado: <b class="num">${BRL.format(total)}</b></p></div>
-      <div class="row"><button class="btn" type="button" data-act="hnovo">+ Novo produto</button><button class="btn primary" type="button" data-act="hcomprar" ${list.length ? "" : "disabled"}>+ Registrar compra</button></div></div>
+      <div class="row"><button class="btn" type="button" data-act="cupom">Foto do cupom</button><button class="btn" type="button" data-act="hnovo">+ Novo produto</button><button class="btn primary" type="button" data-act="hcomprar" ${list.length ? "" : "disabled"}>+ Registrar compra</button></div></div>
     ${list.length ? `<div class="panel"><div class="hyg-list">${list.map(({p, c}) => `<div class="hyg s-${c.status}">
       <div style="min-width:0"><div class="row" style="gap:8px"><h3>${esc(p.nome)}</h3><span class="pill">${LABEL_H[c.status]}</span></div>
         <p class="meta">${c.duracao ? `1 ${esc(p.embalagem || "unidade")} dura <b>${plural(Math.round(c.duracao * 10) / 10, "dia")}</b>${c.estimada ? " (estimado pelas compras)" : ""}` : "Informe quanto dura cada embalagem"}
@@ -940,6 +943,147 @@ function openCompraH(prodId, compraId) {
   });
 }
 
+/* ---------- cupom fiscal ---------- */
+const cupom = {files: [], busy: false, error: "", result: null};
+function openCupom() {
+  if (!state.sample) return toast("A leitura por foto precisa do app aberto no claude.ai com sua conta.");
+  cupom.files.forEach(f => URL.revokeObjectURL(f.url));
+  Object.assign(cupom, {files: [], busy: false, error: "", result: null});
+  $("#modal").hidden = false; renderCupom();
+}
+function cupomAlvos(sel) {
+  const rs = state.remedios.filter(r => r.ativo !== false), hs = state.higiene.filter(p => p.ativo !== false);
+  return `<option value="">Não lançar</option>`
+    + (rs.length ? `<optgroup label="Remédios">${rs.map(r => `<option value="r:${esc(r.id)}" ${sel === "r:" + r.id ? "selected" : ""}>${esc(nomeR(r))}</option>`).join("")}</optgroup>` : "")
+    + `<optgroup label="Higiene">${hs.map(p => `<option value="h:${esc(p.id)}" ${sel === "h:" + p.id ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}<option value="novo-h" ${sel === "novo-h" ? "selected" : ""}>+ Novo produto de higiene</option></optgroup>`;
+}
+function cupomSoma() {
+  const R = cupom.result; if (!R) return "";
+  const soma = R.itens.filter(it => it._alvo).reduce((s, it) => s + num(it.quantidade) * num(it.valorUnitario), 0);
+  return `Lançando <b>${BRL.format(soma)}</b>${num(R.total) ? ` de <b>${BRL.format(num(R.total))}</b> do cupom` : ""}.`;
+}
+function renderCupom() {
+  if ($("#modal").hidden) return;
+  const canImg = !!state.limits?.images;
+  let h = head("Lançar pelo cupom");
+  if (!cupom.result) {
+    h += `<p class="small muted">Fotografe o cupom fiscal ou a nota inteira, sem dobras e com boa luz. O app identifica itens, quantidades e valores; você confere antes de salvar.</p>
+    <label class="drop"><b>Escolher foto do cupom</b><span class="small muted">Foto ou PDF da nota</span>
+      <input type="file" id="cpFile" accept="image/*,application/pdf" multiple ${canImg && !cupom.busy ? "" : "disabled"} style="max-width:100%"></label>
+    ${cupom.files.length ? `<div class="thumbs">${cupom.files.map(f => `<img alt="Cupom" src="${esc(f.url)}">`).join("")}</div>` : ""}
+    ${canImg ? "" : `<p class="small muted">Este aparelho não consegue enviar fotos para leitura. Registre a compra digitando os valores.</p>`}
+    ${cupom.error ? `<p class="small" style="color:var(--bad)">${esc(cupom.error)}</p>` : ""}
+    <div class="row"><button class="btn primary" type="button" id="cpLer" ${cupom.files.length && !cupom.busy ? "" : "disabled"}>${cupom.busy ? `<span class="spin"></span> Lendo o cupom…` : "Ler cupom"}</button><button class="btn" type="button" data-close>Cancelar</button></div>`;
+  } else {
+    const R = cupom.result;
+    h += `<p class="small muted">Confira cada item. Escolha em “Lançar como” a qual remédio ou produto ele corresponde.</p>
+    <form id="fCup" class="view" style="gap:12px">
+      <div class="form"><label class="f">Data da compra<input id="cpData" type="date" value="${validISO(R.data) ? esc(R.data) : todayISO()}"></label>
+        <label class="f">Onde comprou<input id="cpLocal" value="${esc(R.estabelecimento)}"></label></div>
+      ${R.itens.map((it, i) => `<div class="rx-item ${it._alvo ? "" : "off"}" data-i="${i}">
+        <b style="overflow-wrap:anywhere">${esc(it.descricao)}</b>
+        <div class="form">
+          <label class="f full">Lançar como<select data-k="_alvo">${cupomAlvos(it._alvo)}</select></label>
+          <label class="f">Quantidade<input data-k="quantidade" type="number" min="0" step="1" inputmode="numeric" value="${esc(num(it.quantidade) || 1)}"></label>
+          <label class="f">Valor de cada (R$)<input data-k="valorUnitario" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(num(it.valorUnitario).toFixed(2))}"></label>
+          <label class="f full" ${String(it._alvo).startsWith("r:") ? "" : "hidden"} data-only="r">Comprimidos por caixa<input data-k="unidadesPorEmbalagem" type="number" min="0" step="1" inputmode="numeric" value="${esc(num(it.unidadesPorEmbalagem) || "")}" placeholder="igual ao cadastro"></label>
+        </div></div>`).join("")}
+      <p class="preview" id="cpSoma">${cupomSoma()}</p>
+      <div class="row"><button class="btn primary" type="submit">Salvar lançamentos</button><button class="btn" type="button" id="cpOutra">Ler outra foto</button></div>
+    </form>`;
+  }
+  $("#sheet").innerHTML = h;
+  const fi = $("#cpFile");
+  fi && (fi.onchange = async () => {
+    cupom.busy = true; cupom.error = ""; renderCupom();
+    const max = state.limits?.images?.maxCount || 4, blobs = [];
+    try {
+      for (const f of fi.files) {
+        if (blobs.length >= max) break;
+        if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) blobs.push(...await pdfParaImagens(f, Math.min(2, max - blobs.length)));
+        else if (f.type.startsWith("image/")) blobs.push(f);
+      }
+    } catch (e) { console.error(e); cupom.error = "Não consegui abrir esse arquivo. Tente uma foto do cupom."; }
+    cupom.files = blobs.map(file => ({file, url: URL.createObjectURL(file)}));
+    cupom.busy = false; renderCupom();
+  });
+  const ler = $("#cpLer"); ler && (ler.onclick = lerCupom);
+  const outra = $("#cpOutra"); outra && (outra.onclick = () => { cupom.result = null; cupom.files = []; renderCupom(); });
+  const f = $("#fCup"); f && bindCupom(f);
+}
+async function lerCupom() {
+  cupom.busy = true; cupom.error = ""; renderCupom();
+  const rs = state.remedios.map(r => ({id: r.id, nome: nomeR(r)})), hs = state.higiene.map(p => ({id: p.id, nome: [p.nome, p.marca].filter(Boolean).join(" ")}));
+  const prompt = `Você está lendo a foto de um cupom fiscal ou nota de compra brasileira (farmácia, drogaria ou mercado). Extraia os itens comprados.
+
+Remédios cadastrados: ${JSON.stringify(rs)}
+Produtos de higiene cadastrados: ${JSON.stringify(hs)}
+
+Responda SOMENTE com JSON:
+{"estabelecimento":"nome da loja","data":"AAAA-MM-DD ou null","total":0,"itens":[{"descricao":"como está no cupom","quantidade":1,"valorUnitario":0,"categoria":"remedio|higiene|outro","alvoId":"id da lista acima ou null","unidadesPorEmbalagem":null}]}
+
+Regras:
+- valorUnitario é o preço pago por unidade JÁ COM desconto do item (se houver linha de desconto, aplique no item correspondente). Número em reais, ex.: 12.5.
+- quantidade = número de caixas/embalagens compradas.
+- alvoId só quando for claramente o mesmo produto (mesmo princípio ativo e mesma concentração no caso de remédio). Genérico e marca do mesmo princípio ativo e dose contam como o mesmo.
+- unidadesPorEmbalagem: comprimidos/cápsulas por caixa se aparecer na descrição (ex.: "C/30", "30CPR" = 30); senão null.
+- categoria "higiene" para fralda, lenço, sabonete, shampoo, creme, pomada de assadura, papel higiênico, absorvente, luva, álcool etc.
+- Ignore linhas de pagamento, troco, tributos, CPF e totais parciais. "total" é o valor total pago.`;
+  try {
+    const res = await state.sample.json(prompt, {images: cupom.files.map(f => f.file), modelTier: "complex"});
+    if (!res || !Array.isArray(res.itens) || !res.itens.length) throw {code: "vazio"};
+    res.itens = res.itens.map(it => {
+      const id = it.alvoId;
+      let alvo = "";
+      if (id && state.remedios.some(r => r.id === id)) alvo = "r:" + id;
+      else if (id && state.higiene.some(p => p.id === id)) alvo = "h:" + id;
+      else if (it.categoria === "higiene") alvo = "novo-h";
+      return {...it, _alvo: alvo};
+    });
+    cupom.result = res;
+  } catch (e) {
+    cupom.error = e?.code === "not_granted" ? "A leitura não foi autorizada. Permita o uso do Claude nas permissões do app."
+      : e?.code === "rate_limited" ? "Muitas leituras seguidas. Aguarde alguns minutos."
+      : e?.code === "vazio" || e?.code === "invalid_json" ? "Não encontrei itens nessa foto. Tente uma foto mais nítida e com o cupom inteiro."
+      : "Não consegui ler o cupom agora. Tente de novo.";
+  }
+  cupom.busy = false; renderCupom();
+}
+function bindCupom(f) {
+  f.addEventListener("input", e => {
+    const box = e.target.closest(".rx-item"), k = e.target.dataset.k; if (!box || !k) return;
+    const it = cupom.result.itens[+box.dataset.i];
+    it[k] = e.target.value;
+    if (k === "_alvo") { box.classList.toggle("off", !it._alvo); box.querySelector("[data-only=r]").hidden = !String(it._alvo).startsWith("r:"); }
+    $("#cpSoma").innerHTML = cupomSoma();
+  });
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const data = $("#cpData").value, local = $("#cpLocal").value.trim();
+    if (!validISO(data)) return toast("Informe a data da compra.");
+    const itens = cupom.result.itens.filter(it => it._alvo && num(it.quantidade) > 0);
+    if (!itens.length) return toast("Escolha ao menos um item para lançar.");
+    const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
+    const agora = new Date().toISOString();
+    try {
+      for (const it of itens) {
+        const q = num(it.quantidade), v = num(it.valorUnitario);
+        if (it._alvo.startsWith("r:")) {
+          const r = state.remedios.find(x => x.id === it._alvo.slice(2)); if (!r) continue;
+          await put("compras", null, {remedioId: r.id, data, caixas: q, unidadesPorCaixa: num(it.unidadesPorEmbalagem) || num(r.unidadesPorCaixa) || 30,
+            valorCaixa: v, farmacia: local, origem: "cupom", criadoEm: agora});
+        } else {
+          let pid = it._alvo.startsWith("h:") ? it._alvo.slice(2) : null;
+          if (!pid) pid = await put("higiene", null, {nome: String(it.descricao || "Produto").trim(), marca: "", embalagem: "unidade", duracaoDias: null, ativo: true, criadoEm: agora, atualizadoEm: agora});
+          await put("higieneCompras", null, {produtoId: pid, data, quantidade: q, valorUnit: v, local, origem: "cupom", criadoEm: agora});
+        }
+      }
+      closeModal(); cupom.result = null; cupom.files = [];
+      toast(plural(itens.length, "item lançado", "itens lançados") + ".");
+    } catch (err) { btn.disabled = false; fail(err); }
+  };
+}
+
 /* ---------- eventos ---------- */
 document.addEventListener("click", e => {
   const go = e.target.closest("[data-go]"); if (go) { setView(go.dataset.go); return; }
@@ -950,6 +1094,7 @@ document.addEventListener("click", e => {
     case "editar": openRemedio(id); break;
     case "novo": openRemedio(); break;
     case "editcp": openCompra(null, id); break;
+    case "cupom": openCupom(); break;
     case "hnovo": openProduto(null, a.dataset.nome); break;
     case "heditar": openProduto(id); break;
     case "hcomprar": openCompraH(id); break;
