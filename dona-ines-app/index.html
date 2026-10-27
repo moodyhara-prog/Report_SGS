@@ -183,6 +183,8 @@ pre.list{white-space:pre-wrap;background:var(--surface-2);border-radius:10px;pad
 .spin{width:18px;height:18px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);animation:sp 0.9s linear infinite;flex:none}
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:3s}}
+body.ro [data-act],body.ro #btnCompraTopo,body.ro .rx-upload,body.ro .hyg-sug{display:none!important}
+.banner.info{border-color:var(--accent);background:var(--accent-soft)}
 details summary{cursor:pointer;font-weight:600;color:var(--muted);min-height:36px;display:flex;align-items:center}
 </style>
 
@@ -343,12 +345,14 @@ function render() {
   renderBanner(); renderSummary();
   document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === state.view)));
   for (const v of VIEWS) $("#v-" + v).hidden = v !== state.view;
+  document.body.classList.toggle("ro", !!state.readOnly);
   ({painel: renderPainel, receitas: renderReceitas, higiene: renderHigiene, compras: renderCompras, gastos: renderGastos})[state.view]();
 }
 
 function renderBanner() {
   $("#banner").innerHTML = state.mode === "local"
-    ? `<div class="banner">Modo de teste: os dados ficam só nesta tela e somem ao fechar. Abra o app no claude.ai com sua conta para salvar de verdade.</div>` : "";
+    ? `<div class="banner">Modo de teste: os dados ficam só nesta tela e somem ao fechar. Abra o app no claude.ai com sua conta para salvar de verdade.</div>`
+    : state.readOnly ? `<div class="banner info">Você está acompanhando os remédios e compras da Dona Inês. As atualizações aparecem aqui automaticamente.</div>` : "";
 }
 
 function renderSummary() {
@@ -567,7 +571,7 @@ function renderReceitas() {
     : !state.sample ? "A leitura automática precisa do app aberto no claude.ai com sua conta. Você ainda pode cadastrar à mão."
     : !state.limits?.images ? "Este aparelho não consegue enviar fotos para leitura. Cadastre à mão ou abra no navegador do celular." : "";
   const maxN = state.limits?.images?.maxCount || 4;
-  let h = `<div class="panel">
+  let h = `<div class="panel rx-upload">
     <div><h2>Enviar receita</h2><p class="muted small">Tire uma foto bem iluminada, de frente, com a receita inteira. Pode mandar mais de uma página (até ${maxN}).</p></div>
     <label class="drop" id="drop">
       <b>Escolher foto ou tirar com a câmera</b>
@@ -863,7 +867,7 @@ function renderHigiene() {
       <div class="act"><button class="btn primary" type="button" data-act="hcomprar" data-id="${esc(p.id)}">Compra</button><button class="btn" type="button" data-act="heditar" data-id="${esc(p.id)}">Editar</button></div>
     </div>`).join("")}</div></div>`
     : `<div class="empty"><div><h3>Controle de higiene</h3><p class="small muted">Cadastre os produtos que compra para a Dona Inês, diga quanto tempo cada embalagem costuma durar e registre as compras. O app mostra quando vai acabar e quanto você gasta por mês.</p></div></div>`}
-    ${sug.length ? `<div class="panel"><span class="eyebrow">Adicionar rápido</span><div class="chips">${sug.map(n => `<button class="chip" type="button" data-act="hnovo" data-nome="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div></div>` : ""}
+    ${sug.length ? `<div class="panel hyg-sug"><span class="eyebrow">Adicionar rápido</span><div class="chips">${sug.map(n => `<button class="chip" type="button" data-act="hnovo" data-nome="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div></div>` : ""}
     ${hist.length ? `<div class="panel"><h2>Últimas compras de higiene</h2><div class="tbl-wrap"><table>
       <thead><tr><th>Data</th><th>Produto</th><th class="r">Qtd.</th><th class="r">R$/un.</th><th class="r">Total</th><th class="r"><span hidden>Ações</span></th></tr></thead>
       <tbody>${hist.map(c => { const p = state.higiene.find(x => x.id === c.produtoId); return `<tr><td class="num">${fmtD(c.data)}</td><td>${p ? esc(p.nome) : `<span class="muted">produto apagado</span>`}${c.local ? `<br><span class="small muted">${esc(c.local)}</span>` : ""}</td>
@@ -974,6 +978,11 @@ render();
   if (!C || typeof C.use !== "function") return startLocal();
   C.use("sample").then(s => { state.sample = s; if (s) s.limits().then(l => { state.limits = l; render(); }).catch(() => {}); render(); });
   C.use("assets").then(a => state.assets = a).catch(() => {});
+  // só dono/editor grava (regras do db exigem nível admin); os demais só acompanham
+  C.use("user").then(async u => {
+    state.readOnly = u ? !(await u.canEdit()) : false;
+    document.body.classList.toggle("ro", state.readOnly); render();
+  }).catch(() => {});
   const db = await C.use("db");
   if (!db) return startLocal();
   state.db = db; state.mode = "db";
