@@ -1,0 +1,989 @@
+<title>Dona Inês App</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: coluna única tipo "caderno da farmácia" — resumo no topo, abas fixas, cartões-rótulo de remédio com cartela (blister) de estoque */
+:root{
+  --bg:#F2F6F5; --surface:#FFFFFF; --surface-2:#E6EEEC; --ink:#13302B; --muted:#56706B; --line:#D2DFDB;
+  --accent:#1B6B60; --accent-ink:#FFFFFF; --accent-soft:#D5EAE5; --hyg:#7FB8D9;
+  --ok:#2C7A4C; --ok-soft:#DCEFE3; --warn:#9A6200; --warn-soft:#F6E8C6; --bad:#B0372F; --bad-soft:#F6DAD7;
+  --shadow:0 1px 2px rgba(19,48,43,.06),0 4px 14px rgba(19,48,43,.06);
+  --display:'Bitter',Georgia,'Times New Roman',serif;
+  --body:'Figtree',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1917; --surface:#15231F; --surface-2:#1E302B; --ink:#E4EFEC; --muted:#9BB3AD; --line:#2A3F3A;
+  --accent:#5CC2B0; --accent-ink:#06201B; --accent-soft:#18392F; --hyg:#4F86A8;
+  --ok:#6FCF97; --ok-soft:#163626; --warn:#E8B64C; --warn-soft:#3A2D10; --bad:#F08A80; --bad-soft:#3D1C19;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0D1917; --surface:#15231F; --surface-2:#1E302B; --ink:#E4EFEC; --muted:#9BB3AD; --line:#2A3F3A;
+  --accent:#5CC2B0; --accent-ink:#06201B; --accent-soft:#18392F; --hyg:#4F86A8;
+  --ok:#6FCF97; --ok-soft:#163626; --warn:#E8B64C; --warn-soft:#3A2D10; --bad:#F08A80; --bad-soft:#3D1C19;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25); color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:860px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:1.75rem}
+h2{font-size:1.3rem}
+h3{font-size:1.12rem}
+p{margin:0}
+.muted{color:var(--muted)}
+.small{font-size:.875rem}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--muted)}
+
+/* topo */
+.top{padding-block:22px 14px;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brand{display:flex;gap:12px;align-items:center}
+.logo{width:44px;height:44px;border-radius:12px;background:var(--accent);display:grid;place-items:center;flex:none}
+.logo svg{width:26px;height:26px}
+.brand p{font-size:.9rem}
+
+.banner{border:1px solid var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:var(--r);padding:10px 14px;font-size:.9rem;margin-bottom:12px}
+
+/* resumo */
+.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.stat .v{font-family:var(--display);font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.stat .d{font-size:.85rem;color:var(--muted)}
+@media (max-width:560px){.summary{grid-template-columns:1fr 1fr}.summary .stat:first-child{grid-column:1/-1}}
+
+/* abas */
+.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:1 0 auto;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--muted);font:600 .95rem var(--body);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.tab:not([aria-selected="true"]):hover{background:var(--surface-2);color:var(--ink)}
+
+main{padding-bottom:48px}
+.view{display:flex;flex-direction:column;gap:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row.between{justify-content:space-between}
+
+/* botões */
+.btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 .95rem var(--body);cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--accent);padding:0 10px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.btn:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.drop:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+
+/* cartões de remédio (rótulo) */
+.meds{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,370px),1fr));gap:12px}
+.med{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.med-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.med-head h3{min-width:0;overflow-wrap:anywhere}
+.poso{font-size:.92rem;color:var(--muted)}
+.poso b{color:var(--ink);font-weight:600}
+.pill{flex:none;font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.s-ok .pill,.pill.s-ok{background:var(--ok-soft);color:var(--ok)}
+.s-breve .pill,.pill.s-breve{background:var(--warn-soft);color:var(--warn)}
+.s-urgente .pill,.s-acabou .pill,.pill.s-urgente,.pill.s-acabou{background:var(--bad-soft);color:var(--bad)}
+.s-sem .pill,.s-sos .pill,.pill.s-sem,.pill.s-sos{background:var(--surface-2);color:var(--muted)}
+.med.s-urgente,.med.s-acabou{border-color:var(--bad)}
+
+.blister{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;padding:8px;border-radius:10px;background:var(--surface-2)}
+.blister i{display:block;aspect-ratio:1;max-width:100%;border-radius:50%;border:1.5px dashed var(--line);background:transparent}
+.blister i.on{border:none;background:var(--accent)}
+.s-breve .blister i.on{background:var(--warn)}
+.s-urgente .blister i.on,.s-acabou .blister i.on{background:var(--bad)}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.facts div{min-width:0}
+.facts dt{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.facts dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.facts dd small{display:block;font-weight:500;color:var(--muted)}
+.med .actions{display:flex;gap:8px;flex-wrap:wrap}
+.med .actions .btn{flex:1 1 auto}
+
+/* vazio */
+.empty{background:var(--surface);border:1.5px dashed var(--line);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;gap:14px}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;padding:0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;display:flex;gap:10px;min-width:0}
+.steps li::before{content:counter(s);flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;display:grid;place-items:center}
+@media (max-width:620px){.steps{grid-template-columns:1fr}}
+
+/* painéis e tabelas */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.tbl-wrap{overflow-x:auto;margin:0 -4px}
+table{width:100%;border-collapse:collapse;font-size:.93rem}
+th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;white-space:nowrap}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tfoot td{font-weight:700;border-bottom:none}
+
+/* receita */
+.drop{border:2px dashed var(--accent);border-radius:var(--r);background:var(--accent-soft);padding:18px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.drop.over{filter:brightness(.97)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.thumbs img{width:76px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--surface)}
+.rx-item{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.rx-item.off{opacity:.55}
+.conf{font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:999px}
+.conf.alta{background:var(--ok-soft);color:var(--ok)}
+.conf.media{background:var(--warn-soft);color:var(--warn)}
+.conf.baixa{background:var(--bad-soft);color:var(--bad)}
+.rx-hist{display:flex;flex-direction:column;gap:10px}
+.rx-card{display:flex;gap:12px;align-items:flex-start;border-top:1px solid var(--line);padding-top:10px}
+.rx-card:first-child{border-top:none;padding-top:0}
+.rx-card img{width:64px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none}
+.rx-card .ph{width:64px;height:80px;border-radius:8px;background:var(--surface-2);flex:none;display:grid;place-items:center;color:var(--muted);font-size:.7rem}
+.rx-card > div{min-width:0}
+
+/* formulários */
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form .full{grid-column:1/-1}
+@media (max-width:520px){.form{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600;color:var(--muted);min-width:0}
+input,select,textarea{font:500 1rem var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;min-height:44px;padding:8px 10px;width:100%;min-width:0}
+textarea{min-height:64px;resize:vertical}
+label.chk{display:flex;gap:8px;align-items:center;font-weight:600;font-size:.92rem}
+label.chk input{width:20px;height:20px;min-height:0;accent-color:var(--accent)}
+.preview{border-radius:12px;background:var(--accent-soft);padding:12px 14px;font-size:.95rem}
+.preview b{font-variant-numeric:tabular-nums}
+
+/* gastos */
+.bars{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end;height:170px;padding-top:8px;border-bottom:1px solid var(--line)}
+.bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%;min-width:0}
+.bar span{font-size:.72rem;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.bar i{display:block;width:70%;max-width:46px;background:var(--accent)}
+.bar i.h{background:var(--hyg);border-radius:6px 6px 0 0}
+.bar i.r{min-height:2px}
+.bar.cur span{color:var(--ink);font-weight:700}
+.key{display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--accent);margin:0 4px 0 8px;vertical-align:-1px}
+.key.h{background:var(--hyg)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:38px;padding:0 12px;border-radius:999px;border:1px dashed var(--accent);background:transparent;color:var(--accent);font:600 .9rem var(--body);cursor:pointer}
+.chip:hover{background:var(--accent-soft)}
+.hyg-list{display:flex;flex-direction:column}
+.hyg{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:12px 0;border-top:1px solid var(--line);align-items:center}
+.hyg:first-child{border-top:none}
+.hyg h3{font-size:1.02rem}
+.hyg .meta{font-size:.88rem;color:var(--muted)}
+.hyg .meta b{color:var(--ink);font-variant-numeric:tabular-nums}
+.hyg .act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:520px){.hyg{grid-template-columns:1fr}.hyg .act{justify-content:flex-start}}
+.bar-l{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;text-align:center;font-size:.8rem;color:var(--muted);text-transform:capitalize}
+
+/* modal */
+.overlay{position:fixed;inset:0;z-index:20;background:rgba(8,20,18,.5);display:flex;align-items:flex-end;justify-content:center;padding:env(safe-area-inset-top,0px) 0 0}
+.sheet{background:var(--surface);color:var(--ink);width:min(640px,100%);max-height:92%;overflow-y:auto;border-radius:18px 18px 0 0;padding:20px max(18px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+@media (min-width:700px){.overlay{align-items:center}.sheet{border-radius:18px}}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;max-width:calc(100% - 32px)}
+pre.list{white-space:pre-wrap;background:var(--surface-2);border-radius:10px;padding:12px;font:500 .92rem var(--body);margin:0;overflow-wrap:anywhere}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);animation:sp 0.9s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:3s}}
+details summary{cursor:pointer;font-weight:600;color:var(--muted);min-height:36px;display:flex;align-items:center}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-35 12 12)" fill="var(--accent-ink)"/><path d="M12 12 L8.2 17.4" stroke="var(--accent)" stroke-width="1.6"/><path d="M12 12 L15.8 6.6" stroke="var(--accent)" stroke-width="0"/></svg>
+      </div>
+      <div>
+        <h1>Dona Inês</h1>
+        <p class="muted" id="hoje">Controle de remédios</p>
+      </div>
+    </div>
+    <button class="btn primary" id="btnCompraTopo" type="button">+ Registrar compra</button>
+  </header>
+
+  <div id="banner"></div>
+
+  <section class="summary" id="summary" aria-label="Resumo"></section>
+
+  <nav class="tabs" role="tablist" aria-label="Seções">
+    <button class="tab" role="tab" data-view="painel" id="tab-painel">Remédios</button>
+    <button class="tab" role="tab" data-view="receitas" id="tab-receitas">Receitas</button>
+    <button class="tab" role="tab" data-view="higiene" id="tab-higiene">Higiene</button>
+    <button class="tab" role="tab" data-view="compras" id="tab-compras">Compras</button>
+    <button class="tab" role="tab" data-view="gastos" id="tab-gastos">Gastos</button>
+  </nav>
+
+  <main>
+    <section class="view" id="v-painel"></section>
+    <section class="view" id="v-receitas" hidden></section>
+    <section class="view" id="v-higiene" hidden></section>
+    <section class="view" id="v-compras" hidden></section>
+    <section class="view" id="v-gastos" hidden></section>
+  </main>
+</div>
+
+<div class="overlay" id="modal" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const BRL = new Intl.NumberFormat("pt-BR", {style:"currency", currency:"BRL"});
+const NUM = new Intl.NumberFormat("pt-BR", {maximumFractionDigits:1});
+const num = v => { if (typeof v === "number") return isFinite(v) ? v : 0; const n = parseFloat(String(v ?? "").replace(",", ".")); return isFinite(n) ? n : 0; };
+const pad = n => String(n).padStart(2, "0");
+const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()); };
+const toUTC = iso => { const [y,m,d] = String(iso).split("-").map(Number); return Date.UTC(y, (m||1)-1, d||1); };
+const diffDays = (a, b) => Math.round((toUTC(b) - toUTC(a)) / 864e5);
+const addDays = (iso, n) => new Date(toUTC(iso) + n*864e5).toISOString().slice(0, 10);
+const fmtD = iso => iso ? String(iso).split("-").reverse().join("/") : "—";
+const validISO = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+const plural = (n, s, p) => NUM.format(n) + " " + (Math.abs(n) === 1 ? s : (p || s + "s"));
+const norm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+const state = {
+  remedios: [], compras: [], receitas: [], higiene: [], higieneCompras: [],
+  loaded: {remedios:false, compras:false, receitas:false, higiene:false, higieneCompras:false},
+  db: null, mode: "carregando", sample: null, limits: null, assets: null,
+  view: "painel", rxFiles: [], rxBusy: false, rxResult: null, rxError: "", rxAsset: null
+};
+
+/* ---------- cálculo de estoque ---------- */
+const diario = r => num(r.quantidadePorDose) * num(r.dosesPorDia);
+const ORDER = {acabou:0, urgente:1, breve:2, ok:3, sos:4, sem:5};
+const LABEL = {ok:"Em dia", breve:"Comprar em breve", urgente:"Comprar já", acabou:"Acabou", sem:"Sem compra", sos:"Se necessário"};
+
+function calc(r, extra) {
+  const d = diario(r);
+  const upcR = num(r.unidadesPorCaixa);
+  const cs = state.compras.filter(c => c.remedioId === r.id).concat(extra ? [extra] : [])
+    .filter(c => validISO(c.data)).sort((a, b) => a.data < b.data ? -1 : a.data > b.data ? 1 : 0);
+  const out = {diario: d, compras: cs, upc: upcR};
+  const last = cs[cs.length - 1];
+  if (last) {
+    const upc = num(last.unidadesPorCaixa) || upcR;
+    out.custoUnit = upc ? num(last.valorCaixa) / upc : 0;
+    out.upcUlt = upc;
+  }
+  const upcBase = out.upcUlt || upcR;
+  out.mensal = d && out.custoUnit ? d * 30 * out.custoUnit : null;
+  out.caixasMes = d && upcBase ? d * 30 / upcBase : null;
+  if (!cs.length) { out.status = d ? "sem" : "sos"; return out; }
+  const t = todayISO();
+  let stock = 0, prev = null;
+  for (const c of cs) {
+    if (prev) stock = Math.max(0, stock - d * Math.max(0, diffDays(prev, c.data)));
+    stock += num(c.caixas) * (num(c.unidadesPorCaixa) || upcR);
+    prev = c.data;
+  }
+  out.ultima = last;
+  out.estoqueNaCompra = stock;
+  out.restante = Math.max(0, stock - d * Math.max(0, diffDays(prev, t)));
+  if (!d) { out.status = "sos"; return out; }
+  out.dias = Math.floor(out.restante / d + 1e-9);
+  out.fim = addDays(t, out.dias);
+  out.pct = stock ? out.restante / stock : 0;
+  out.status = out.dias <= 0 ? "acabou" : out.dias <= 5 ? "urgente" : out.dias <= 12 ? "breve" : "ok";
+  return out;
+}
+
+const VIEWS = ["painel","receitas","higiene","compras","gastos"];
+const ativos = () => state.remedios.filter(r => r.ativo !== false);
+const nomeR = r => [r.nome, r.concentracao].filter(Boolean).join(" ");
+const unid = (r, n) => { const u = r.unidade || "comprimido"; if (Math.abs(n) === 1) return u; if (/ml$/i.test(u)) return u; return u.endsWith("s") ? u : u.replace(/ão$/, "ões").replace(/([^s])$/, "$1s"); };
+
+function sorted() {
+  return ativos().map(r => ({r, c: calc(r)})).sort((a, b) =>
+    (ORDER[a.c.status] - ORDER[b.c.status]) || ((a.c.dias ?? 1e9) - (b.c.dias ?? 1e9)) || nomeR(a.r).localeCompare(nomeR(b.r)));
+}
+
+/* ---------- persistência ---------- */
+async function put(col, id, data) {
+  if (state.db) {
+    const ref = id ? state.db.collection(col).doc(id) : state.db.collection(col).doc();
+    await ref.set(data);
+    return ref.id;
+  }
+  const nid = id || Math.random().toString(36).slice(2, 12);
+  const arr = state[col]; const i = arr.findIndex(x => x.id === nid);
+  const doc = {id: nid, ...data};
+  if (i >= 0) arr[i] = doc; else arr.push(doc);
+  render();
+  return nid;
+}
+async function del(col, id) {
+  if (state.db) return state.db.collection(col).doc(id).delete();
+  state[col] = state[col].filter(x => x.id !== id); render();
+}
+const strip = o => { const c = {...o}; delete c.id; return c; };
+function fail(e) { console.error(e); toast(e?.code === "quota_exceeded" ? "Limite de armazenamento atingido." : "Não consegui salvar. Verifique a conexão e tente de novo."); }
+
+/* ---------- UI util ---------- */
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2800); }
+function openModal(html, onMount) {
+  $("#sheet").innerHTML = html; $("#modal").hidden = false;
+  const f = $("#sheet").querySelector("input,select,button.primary"); f && f.focus({preventScroll:true});
+  onMount && onMount($("#sheet"));
+}
+function closeModal() { $("#modal").hidden = true; $("#sheet").innerHTML = ""; }
+$("#modal").addEventListener("click", e => { if (e.target.id === "modal" || e.target.closest("[data-close]")) closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#modal").hidden) closeModal(); });
+const head = t => `<div class="sheet-head"><h2>${esc(t)}</h2><button class="btn ghost" type="button" data-close aria-label="Fechar">Fechar</button></div>`;
+
+function confirmBox(title, text, okLabel, onOk) {
+  openModal(head(title) + `<p>${esc(text)}</p><div class="row"><button class="btn danger" id="cfOk" type="button">${esc(okLabel)}</button><button class="btn" type="button" data-close>Cancelar</button></div>`,
+    s => s.querySelector("#cfOk").onclick = async () => { closeModal(); try { await onOk(); } catch (e) { fail(e); } });
+}
+
+/* ---------- render ---------- */
+function render() {
+  $("#hoje").textContent = new Date().toLocaleDateString("pt-BR", {weekday:"long", day:"numeric", month:"long"});
+  renderBanner(); renderSummary();
+  document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === state.view)));
+  for (const v of VIEWS) $("#v-" + v).hidden = v !== state.view;
+  ({painel: renderPainel, receitas: renderReceitas, higiene: renderHigiene, compras: renderCompras, gastos: renderGastos})[state.view]();
+}
+
+function renderBanner() {
+  $("#banner").innerHTML = state.mode === "local"
+    ? `<div class="banner">Modo de teste: os dados ficam só nesta tela e somem ao fechar. Abra o app no claude.ai com sua conta para salvar de verdade.</div>` : "";
+}
+
+function renderSummary() {
+  const list = sorted();
+  const hl = sortedH();
+  const totR = list.reduce((s, x) => s + (x.c.mensal || 0), 0), totH = hl.reduce((s, x) => s + (x.c.mensal || 0), 0);
+  const prox = list.find(x => x.c.dias != null);
+  const comprar = list.filter(x => ["acabou","urgente","breve"].includes(x.c.status)).length + hl.filter(x => ["acabou","urgente"].includes(x.c.status)).length;
+  $("#summary").innerHTML = `
+    <div class="stat"><span class="eyebrow">Gasto mensal estimado</span><span class="v">${BRL.format(totR + totH)}</span>
+      <span class="d">${list.length || hl.length ? `Remédios ${BRL.format(totR)} · Higiene ${BRL.format(totH)}` : "Cadastre remédios e produtos"}</span></div>
+    <div class="stat"><span class="eyebrow">Acaba primeiro</span><span class="v">${prox ? esc(prox.r.nome) : "—"}</span>
+      <span class="d">${prox ? (prox.c.dias <= 0 ? "acabou" : `em ${plural(prox.c.dias, "dia")} · ${fmtD(prox.c.fim)}`) : "registre uma compra"}</span></div>
+    <div class="stat"><span class="eyebrow">Para comprar</span><span class="v">${comprar}</span>
+      <span class="d">${comprar ? `<button class="btn ghost" type="button" id="btnLista" style="padding:0;min-height:0">Ver lista de compras</button>` : "nada pendente"}</span></div>`;
+  const bl = $("#btnLista"); bl && (bl.onclick = openLista);
+}
+
+function blister(c) {
+  const n = 14, on = c.pct == null ? 0 : Math.max(c.restante > 0 ? 1 : 0, Math.round(c.pct * n));
+  let h = ""; for (let i = 0; i < n; i++) h += `<i class="${i < on ? "on" : ""}"></i>`;
+  return `<div class="blister" aria-label="Estoque: ${Math.round((c.pct || 0) * 100)}% da última reposição">${h}</div>`;
+}
+
+function medCard({r, c}) {
+  const d = c.diario;
+  const poso = d
+    ? `<b>${NUM.format(num(r.quantidadePorDose))} ${esc(unid(r, num(r.quantidadePorDose)))}</b> · ${NUM.format(num(r.dosesPorDia))}x ao dia = <b>${NUM.format(d)}/dia</b>`
+    : `<b>Uso se necessário</b>`;
+  let facts;
+  if (c.status === "sem") {
+    facts = `<p class="small muted">Registre a primeira compra para ver quanto tempo dura.</p>`;
+  } else {
+    facts = `<dl class="facts">
+      <div><dt>Restam</dt><dd>${NUM.format(Math.floor(c.restante ?? 0))}<small>${esc(unid(r, 2))}</small></dd></div>
+      <div><dt>Dura até</dt><dd>${c.fim ? fmtD(c.fim) : "—"}<small>${c.dias != null ? plural(c.dias, "dia") : "sem consumo fixo"}</small></dd></div>
+      <div><dt>Custo/mês</dt><dd>${c.mensal != null ? BRL.format(c.mensal) : "—"}<small>${c.caixasMes ? NUM.format(c.caixasMes) + " cx/mês" : ""}</small></dd></div>
+    </dl>`;
+  }
+  return `<article class="med s-${c.status}">
+    <div class="med-head"><h3>${esc(nomeR(r))}</h3><span class="pill">${LABEL[c.status]}</span></div>
+    <p class="poso">${poso}${r.posologiaTexto ? `<br><span class="small">“${esc(r.posologiaTexto)}”</span>` : ""}</p>
+    ${c.status !== "sem" && d ? blister(c) : ""}
+    ${facts}
+    ${c.ultima ? `<p class="small muted">Última compra: ${fmtD(c.ultima.data)} · ${plural(num(c.ultima.caixas), "caixa")} · ${BRL.format(num(c.ultima.valorCaixa))}/cx</p>` : ""}
+    <div class="actions">
+      <button class="btn primary" type="button" data-act="comprar" data-id="${esc(r.id)}">Registrar compra</button>
+      <button class="btn" type="button" data-act="editar" data-id="${esc(r.id)}">Editar</button>
+    </div>
+  </article>`;
+}
+
+function emptyState() {
+  return `<div class="empty">
+    <div><h2>Vamos começar</h2><p class="muted">Cadastre os remédios da Dona Inês e o app calcula sozinho quanto tempo cada compra dura e quanto custa por mês.</p></div>
+    <ol class="steps">
+      <li><div><b>Envie a receita</b><br><span class="small muted">Tire uma foto. O app lê os remédios e a posologia.</span></div></li>
+      <li><div><b>Registre a compra</b><br><span class="small muted">Data, quantas caixas e o valor de cada uma.</span></div></li>
+      <li><div><b>Acompanhe</b><br><span class="small muted">Veja quando acaba cada remédio e o gasto do mês.</span></div></li>
+    </ol>
+    <div class="row"><button class="btn primary" type="button" data-go="receitas">Enviar receita</button><button class="btn" type="button" data-act="novo">Cadastrar sem receita</button></div>
+  </div>`;
+}
+
+function renderPainel() {
+  const el = $("#v-painel");
+  if (!state.loaded.remedios) { el.innerHTML = `<div class="row muted"><span class="spin"></span> Carregando remédios…</div>`; return; }
+  const list = sorted();
+  const inativos = state.remedios.filter(r => r.ativo === false);
+  if (!list.length && !inativos.length) { el.innerHTML = emptyState(); return; }
+  el.innerHTML = `
+    <div class="row between"><h2>Remédios em uso</h2><button class="btn" type="button" data-act="novo">+ Novo remédio</button></div>
+    ${list.length ? `<div class="meds">${list.map(medCard).join("")}</div>` : `<p class="muted">Nenhum remédio ativo.</p>`}
+    ${inativos.length ? `<details><summary>Suspensos (${inativos.length})</summary><div class="meds" style="margin-top:10px">${inativos.map(r => `<article class="med s-sem"><div class="med-head"><h3>${esc(nomeR(r))}</h3><span class="pill">Suspenso</span></div><div class="actions"><button class="btn" type="button" data-act="editar" data-id="${esc(r.id)}">Editar / reativar</button></div></article>`).join("")}</div></details>` : ""}
+    <p class="small muted">Os dias são contados a partir de cada compra com o consumo diário da posologia. “Comprar já” aparece com 5 dias ou menos; “Comprar em breve”, com 12 dias ou menos.</p>`;
+}
+
+/* ---------- lista de compras ---------- */
+function openLista() {
+  const items = sorted().filter(x => ["acabou","urgente","breve"].includes(x.c.status));
+  const lines = items.map(({r, c}) => {
+    const falta = Math.max(0, c.diario * 30 - (c.restante || 0));
+    const upc = c.upcUlt || c.upc;
+    const cx = upc ? Math.max(1, Math.ceil(falta / upc)) : null;
+    return `• ${nomeR(r)}${cx ? ` — ${cx} ${cx === 1 ? "caixa" : "caixas"}` : ""} (${c.dias <= 0 ? "acabou" : "acaba em " + plural(c.dias, "dia")})`;
+  });
+  const hItems = sortedH().filter(x => ["acabou","urgente"].includes(x.c.status));
+  const hLines = hItems.map(({p, c}) => {
+    const q = c.diario ? Math.max(1, Math.ceil(c.diario * 30 - (c.restante || 0))) : 1;
+    return `• ${p.nome} — ${q} ${esc(p.embalagem || "un.")} (${c.dias <= 0 ? "acabou" : "acaba em " + plural(c.dias, "dia")})`;
+  });
+  const txt = `Compras da Dona Inês (${fmtD(todayISO())})\n\nRemédios:\n` + (lines.join("\n") || "Nada pendente.")
+    + `\n\nHigiene:\n` + (hLines.join("\n") || "Nada pendente.") + `\n\nQuantidades calculadas para 30 dias.`;
+  openModal(head("Lista de compras") + `<pre class="list" id="listaTxt">${esc(txt)}</pre>
+    <div class="row"><button class="btn primary" type="button" id="copiar">Copiar texto</button><button class="btn" type="button" data-close>Fechar</button></div>`,
+    s => s.querySelector("#copiar").onclick = () => {
+      navigator.clipboard.writeText(txt).then(() => toast("Lista copiada. Cole no WhatsApp ou em notas."))
+        .catch(() => { const r = document.createRange(); r.selectNodeContents(s.querySelector("#listaTxt")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast("Texto selecionado. Use Copiar do seu celular."); });
+    });
+}
+
+/* ---------- formulário de remédio ---------- */
+const UNIDADES = ["comprimido","cápsula","gota","ml","sachê","aplicação","adesivo","unidade"];
+function remedioForm(r = {}) {
+  return `<form class="form" id="fRem">
+    <label class="f full">Nome do remédio<input id="rNome" required value="${esc(r.nome)}" placeholder="Ex.: Losartana potássica"></label>
+    <label class="f">Concentração<input id="rConc" value="${esc(r.concentracao)}" placeholder="Ex.: 50 mg"></label>
+    <label class="f">Unidade<select id="rUn">${UNIDADES.map(u => `<option ${u === (r.unidade || "comprimido") ? "selected" : ""}>${u}</option>`).join("")}</select></label>
+    <label class="f">Quantidade por dose<input id="rQpd" type="number" inputmode="decimal" step="0.25" min="0" value="${esc(r.quantidadePorDose ?? 1)}"></label>
+    <label class="f">Vezes por dia<input id="rDpd" type="number" inputmode="decimal" step="0.5" min="0" value="${esc(r.dosesPorDia ?? 1)}"></label>
+    <label class="f">Unidades por caixa<input id="rUpc" type="number" inputmode="numeric" step="1" min="0" value="${esc(r.unidadesPorCaixa ?? 30)}"></label>
+    <label class="f">Médico<input id="rMed" value="${esc(r.medico)}"></label>
+    <label class="f full">Posologia (como está na receita)<textarea id="rPos" placeholder="Ex.: tomar 1 comprimido de 12 em 12 horas">${esc(r.posologiaTexto)}</textarea></label>
+    <label class="chk full"><input type="checkbox" id="rCont" ${r.usoContinuo !== false ? "checked" : ""}> Uso contínuo</label>
+    <label class="chk full"><input type="checkbox" id="rAtivo" ${r.ativo !== false ? "checked" : ""}> Em uso (desmarque se foi suspenso)</label>
+    <p class="small muted full">Para uso “se necessário”, coloque 0 em vezes por dia.</p>
+    <div class="row full">
+      <button class="btn primary" type="submit">Salvar</button>
+      ${r.id ? `<button class="btn danger" type="button" id="rDel">Excluir</button>` : ""}
+      <button class="btn" type="button" data-close>Cancelar</button>
+    </div>
+  </form>`;
+}
+function readRemedio(s, base = {}) {
+  return {...strip(base),
+    nome: s.querySelector("#rNome").value.trim(), concentracao: s.querySelector("#rConc").value.trim(),
+    unidade: s.querySelector("#rUn").value, quantidadePorDose: num(s.querySelector("#rQpd").value),
+    dosesPorDia: num(s.querySelector("#rDpd").value), unidadesPorCaixa: num(s.querySelector("#rUpc").value),
+    medico: s.querySelector("#rMed").value.trim(), posologiaTexto: s.querySelector("#rPos").value.trim(),
+    usoContinuo: s.querySelector("#rCont").checked, ativo: s.querySelector("#rAtivo").checked,
+    atualizadoEm: new Date().toISOString(), criadoEm: base.criadoEm || new Date().toISOString()};
+}
+function openRemedio(id) {
+  const r = id ? state.remedios.find(x => x.id === id) : {};
+  if (!r) return;
+  openModal(head(id ? "Editar remédio" : "Novo remédio") + remedioForm(r), s => {
+    s.querySelector("#fRem").onsubmit = async e => {
+      e.preventDefault();
+      const data = readRemedio(s, r);
+      if (!data.nome) return toast("Informe o nome do remédio.");
+      try { await put("remedios", r.id, data); closeModal(); toast("Remédio salvo."); } catch (err) { fail(err); }
+    };
+    const d = s.querySelector("#rDel");
+    d && (d.onclick = () => confirmBox("Excluir remédio?", `${nomeR(r)} e suas ${state.compras.filter(c => c.remedioId === r.id).length} compras registradas serão apagados. Para só parar de acompanhar, use “Em uso”.`, "Excluir",
+      async () => { for (const c of state.compras.filter(c => c.remedioId === r.id)) await del("compras", c.id); await del("remedios", r.id); toast("Remédio excluído."); }));
+  });
+}
+
+/* ---------- compra ---------- */
+function openCompra(remId, compraId) {
+  const lista = ativos().slice().sort((a, b) => nomeR(a).localeCompare(nomeR(b)));
+  if (!lista.length) { toast("Cadastre um remédio primeiro."); state.view = "receitas"; location.hash = "receitas"; render(); return; }
+  const cp = compraId ? state.compras.find(c => c.id === compraId) : null;
+  const sel = cp ? cp.remedioId : (remId || lista[0].id);
+  const r0 = state.remedios.find(r => r.id === sel) || lista[0];
+  const last = calc(r0).ultima;
+  openModal(head(cp ? "Editar compra" : "Registrar compra") + `<form class="form" id="fCp">
+    <label class="f full">Remédio<select id="cRem">${lista.map(r => `<option value="${esc(r.id)}" ${r.id === sel ? "selected" : ""}>${esc(nomeR(r))}</option>`).join("")}</select></label>
+    <label class="f">Data da compra<input id="cData" type="date" value="${esc(cp?.data || todayISO())}" max="${addDays(todayISO(), 1)}"></label>
+    <label class="f">Quantidade de caixas<input id="cCx" type="number" inputmode="numeric" min="1" step="1" value="${esc(cp?.caixas ?? 1)}"></label>
+    <label class="f">Unidades por caixa<input id="cUpc" type="number" inputmode="numeric" min="1" step="1" value="${esc(cp?.unidadesPorCaixa ?? (num(r0.unidadesPorCaixa) || 30))}"></label>
+    <label class="f">Valor por caixa (R$)<input id="cVal" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(cp?.valorCaixa ?? (last ? num(last.valorCaixa) : ""))}" placeholder="0,00"></label>
+    <label class="f full">Farmácia (opcional)<input id="cFar" value="${esc(cp?.farmacia ?? (last?.farmacia || ""))}" placeholder="Ex.: Drogasil, Farmácia Popular"></label>
+    <div class="preview full" id="cPrev" aria-live="polite"></div>
+    <div class="row full"><button class="btn primary" type="submit">Salvar compra</button><button class="btn" type="button" data-close>Cancelar</button></div>
+  </form>`, s => {
+    const g = id => s.querySelector(id);
+    const upd = () => {
+      const r = state.remedios.find(x => x.id === g("#cRem").value); if (!r) return;
+      const cx = num(g("#cCx").value), upc = num(g("#cUpc").value), val = num(g("#cVal").value);
+      const d = diario(r), un = cx * upc;
+      const extra = {id: "_novo", remedioId: r.id, data: g("#cData").value, caixas: cx, unidadesPorCaixa: upc, valorCaixa: val};
+      const saved = state.compras; if (cp) state.compras = state.compras.filter(c => c.id !== cp.id);
+      const c = calc(r, validISO(extra.data) ? extra : null); state.compras = saved;
+      let h = `<b>${NUM.format(un)}</b> ${esc(unid(r, un))} · total <b>${BRL.format(cx * val)}</b>`;
+      if (d) h += `<br>Esta compra sozinha dura <b>${plural(Math.floor(un / d), "dia")}</b> (${NUM.format(d)} ${esc(unid(r, d))}/dia).`
+        + (c.fim ? `<br>Somando o que já tinha, o estoque vai até <b>${fmtD(c.fim)}</b>.` : "")
+        + (val && upc ? `<br>Custo mensal: <b>${BRL.format(d * 30 * val / upc)}</b>.` : "");
+      else h += `<br>Uso se necessário: sem previsão de término.`;
+      g("#cPrev").innerHTML = h;
+    };
+    g("#cRem").onchange = () => { const r = state.remedios.find(x => x.id === g("#cRem").value); const l = r && calc(r).ultima; if (r && !cp) { g("#cUpc").value = num(r.unidadesPorCaixa) || 30; g("#cVal").value = l ? num(l.valorCaixa) : ""; } upd(); };
+    ["#cData","#cCx","#cUpc","#cVal"].forEach(id => g(id).oninput = upd);
+    upd();
+    g("#fCp").onsubmit = async e => {
+      e.preventDefault();
+      const data = {remedioId: g("#cRem").value, data: g("#cData").value, caixas: num(g("#cCx").value),
+        unidadesPorCaixa: num(g("#cUpc").value), valorCaixa: num(g("#cVal").value), farmacia: g("#cFar").value.trim(),
+        criadoEm: cp?.criadoEm || new Date().toISOString()};
+      if (!validISO(data.data)) return toast("Informe a data da compra.");
+      if (data.caixas <= 0 || data.unidadesPorCaixa <= 0) return toast("Informe caixas e unidades por caixa.");
+      try { await put("compras", cp?.id, data); closeModal(); toast("Compra registrada."); } catch (err) { fail(err); }
+    };
+  });
+}
+
+/* ---------- receitas ---------- */
+const PROMPT = `Você é um farmacêutico brasileiro experiente lendo a(s) foto(s) de uma receita médica (pode ser manuscrita, digitada ou receituário de controle especial). Extraia TODOS os medicamentos prescritos.
+
+Responda SOMENTE com um JSON neste formato:
+{"medico":"nome ou vazio","crm":"número ou vazio","dataReceita":"AAAA-MM-DD ou null","paciente":"nome ou vazio","itens":[{"nome":"nome comercial ou genérico, sem a dose","concentracao":"ex.: 50 mg","unidade":"comprimido|cápsula|gota|ml|sachê|aplicação|adesivo|unidade","quantidadePorDose":1,"dosesPorDia":2,"usoContinuo":true,"duracaoDias":null,"quantidadePrescrita":"ex.: 2 caixas ou uso contínuo","unidadesPorCaixa":null,"posologiaTexto":"posologia como escrita na receita","observacao":"","confianca":"alta|media|baixa"}]}
+
+Regras:
+- "de 12 em 12 horas" = 2 por dia; "de 8 em 8 horas" = 3; "1x ao dia", "pela manhã" ou "à noite" = 1; "manhã e noite" = 2; "a cada 6 horas" = 4.
+- Uso semanal: dosesPorDia = vezes por semana / 7 (ex.: 1x por semana = 0.142857).
+- "Se necessário", "SOS", "em caso de dor": dosesPorDia = 0.
+- Gotas: unidade "gota" e quantidadePorDose = número de gotas. Xarope/solução: unidade "ml".
+- Meio comprimido = 0.5.
+- unidadesPorCaixa só se estiver escrito (ex.: "cx c/ 30"); senão null.
+- Se uma palavra estiver ilegível, dê sua melhor leitura e use confianca "baixa". Não invente medicamentos.`;
+
+function renderReceitas() {
+  const el = $("#v-receitas");
+  const canRead = !!(state.sample && state.limits?.images);
+  const reason = state.mode === "carregando" ? "Conectando…"
+    : !state.sample ? "A leitura automática precisa do app aberto no claude.ai com sua conta. Você ainda pode cadastrar à mão."
+    : !state.limits?.images ? "Este aparelho não consegue enviar fotos para leitura. Cadastre à mão ou abra no navegador do celular." : "";
+  const maxN = state.limits?.images?.maxCount || 4;
+  let h = `<div class="panel">
+    <div><h2>Enviar receita</h2><p class="muted small">Tire uma foto bem iluminada, de frente, com a receita inteira. Pode mandar mais de uma página (até ${maxN}).</p></div>
+    <label class="drop" id="drop">
+      <b>Escolher foto ou tirar com a câmera</b>
+      <span class="small muted">Foto (JPG/PNG) ou PDF da receita digital (Memed etc.)</span>
+      <input type="file" id="rxFile" accept="${esc((state.limits?.images?.mediaTypes?.join(",") || "image/*") + ",application/pdf")}" multiple ${canRead ? "" : "disabled"} style="max-width:100%">
+    </label>
+    ${state.rxFiles.length ? `<div class="thumbs">${state.rxFiles.map(f => `<img alt="Página da receita" src="${esc(f.url)}">`).join("")}</div>` : ""}
+    ${reason ? `<p class="small muted">${esc(reason)}</p>` : ""}
+    <div class="row">
+      <button class="btn primary" type="button" id="rxLer" ${canRead && state.rxFiles.length && !state.rxBusy ? "" : "disabled"}>${state.rxBusy ? `<span class="spin"></span> Lendo a receita…` : "Ler receita"}</button>
+      ${state.rxFiles.length && !state.rxBusy ? `<button class="btn" type="button" id="rxLimpar">Trocar foto</button>` : ""}
+      <button class="btn" type="button" data-act="novo">Cadastrar sem receita</button>
+    </div>
+    ${state.rxError ? `<p class="small" style="color:var(--bad)">${esc(state.rxError)}</p>` : ""}
+  </div>`;
+  if (state.rxResult) h += rxReview();
+  h += `<div class="panel"><h2>Receitas guardadas</h2>${rxHistory()}</div>`;
+  el.innerHTML = h;
+  const fi = $("#rxFile");
+  fi && (fi.onchange = () => prepararArquivos([...fi.files], maxN));
+  const drop = $("#drop");
+  if (drop && canRead) {
+    drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); prepararArquivos([...e.dataTransfer.files], maxN); };
+  }
+  const ler = $("#rxLer"); ler && (ler.onclick = lerReceita);
+  const lp = $("#rxLimpar"); lp && (lp.onclick = () => { state.rxFiles = []; state.rxResult = null; state.rxError = ""; render(); });
+  const fr = $("#fRx"); fr && bindReview(fr);
+}
+
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+let pdfReady = null;
+const loadScript = src => new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+function loadPdf() {
+  // o worker roda na página (pdfjsWorker global): o frame não permite Worker de outro domínio
+  return pdfReady || (pdfReady = loadScript(PDFJS + "pdf.worker.min.js").then(() => loadScript(PDFJS + "pdf.min.js")).then(() => window.pdfjsLib).catch(e => { pdfReady = null; throw e; }));
+}
+async function pdfParaImagens(file, max) {
+  const lib = await loadPdf();
+  const doc = await lib.getDocument({data: await file.arrayBuffer(), isEvalSupported: false}).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(doc.numPages, max); i++) {
+    const pg = await doc.getPage(i), vp = pg.getViewport({scale: 2});
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+    await pg.render({canvasContext: c.getContext("2d"), viewport: vp}).promise;
+    out.push(await new Promise(r => c.toBlob(r, "image/png")));
+  }
+  return out;
+}
+async function prepararArquivos(files, maxN) {
+  state.rxFiles.forEach(f => URL.revokeObjectURL(f.url));
+  state.rxFiles = []; state.rxResult = null; state.rxError = ""; state.rxAsset = null;
+  const blobs = [];
+  try {
+    for (const f of files) {
+      if (blobs.length >= maxN) break;
+      if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
+        state.rxBusy = true; render();
+        // receitas Memed repetem os itens nas páginas 2 e 3 (vias da farmácia): a 1ª página basta
+        blobs.push(...await pdfParaImagens(f, Math.min(2, maxN - blobs.length)));
+      } else if (f.type.startsWith("image/")) blobs.push(f);
+    }
+  } catch (e) { console.error(e); state.rxError = "Não consegui abrir esse PDF. Tente enviar um print ou foto da receita."; }
+  state.rxBusy = false;
+  state.rxFiles = blobs.slice(0, maxN).map(file => ({file, url: URL.createObjectURL(file)}));
+  render();
+}
+
+async function lerReceita() {
+  if (state.rxBusy) return;
+  state.rxBusy = true; state.rxError = ""; render();
+  const files = state.rxFiles.map(f => f.file);
+  if (state.assets && !state.rxAsset) {
+    state.assets.upload(files[0]).then(a => state.rxAsset = a).catch(() => {});
+  }
+  try {
+    const res = await state.sample.json(PROMPT + `\n\nSão ${files.length} imagem(ns) da mesma receita.`, {images: files, modelTier: "complex"});
+    if (!res || !Array.isArray(res.itens) || !res.itens.length) throw {code: "vazio"};
+    res.itens = res.itens.map(it => ({...it, _incluir: true, _alvo: matchRemedio(it.nome)}));
+    state.rxResult = res;
+  } catch (e) {
+    state.rxError = e?.code === "not_granted" ? "A leitura não foi autorizada. Permita o uso do Claude nas permissões do app para ler receitas."
+      : e?.code === "rate_limited" ? "Muitas leituras seguidas. Aguarde alguns minutos e tente de novo."
+      : e?.code === "vazio" || e?.code === "invalid_json" ? "Não encontrei remédios nessa foto. Tente uma foto mais nítida, de frente e com boa luz."
+      : e?.code === "image_rejected" ? "Essa imagem não foi aceita. Use uma foto JPG ou PNG."
+      : "Não consegui ler a receita agora. Tente de novo.";
+  }
+  state.rxBusy = false; render();
+}
+
+function matchRemedio(nome) {
+  const n = norm(nome).split(/\s+/)[0];
+  if (!n) return "";
+  const r = state.remedios.find(r => norm(r.nome).split(/\s+/)[0] === n);
+  return r ? r.id : "";
+}
+
+function rxReview() {
+  const R = state.rxResult;
+  return `<div class="panel">
+    <div><h2>Confira o que foi lido</h2><p class="small muted">Revise cada remédio antes de salvar. A leitura pode errar em letra de médico, principalmente onde aparece “baixa”.</p></div>
+    <form id="fRx" class="view" style="gap:12px">
+      <div class="form">
+        <label class="f">Médico<input id="xMed" value="${esc(R.medico)}"></label>
+        <label class="f">Data da receita<input id="xData" type="date" value="${validISO(R.dataReceita) ? esc(R.dataReceita) : ""}"></label>
+      </div>
+      ${R.itens.map((it, i) => `<div class="rx-item ${it._incluir ? "" : "off"}" data-i="${i}">
+        <div class="row between"><label class="chk"><input type="checkbox" data-k="_incluir" ${it._incluir ? "checked" : ""}> Incluir</label><span class="conf ${esc(it.confianca || "media")}">Leitura ${esc(it.confianca === "media" ? "média" : (it.confianca || "média"))}</span></div>
+        <div class="form">
+          <label class="f">Nome<input data-k="nome" value="${esc(it.nome)}"></label>
+          <label class="f">Concentração<input data-k="concentracao" value="${esc(it.concentracao)}"></label>
+          <label class="f">Unidade<select data-k="unidade">${UNIDADES.map(u => `<option ${u === norm(it.unidade) || u === it.unidade ? "selected" : ""}>${u}</option>`).join("")}</select></label>
+          <label class="f">Por dose<input data-k="quantidadePorDose" type="number" step="0.25" min="0" inputmode="decimal" value="${esc(num(it.quantidadePorDose) || 1)}"></label>
+          <label class="f">Vezes por dia<input data-k="dosesPorDia" type="number" step="any" min="0" inputmode="decimal" value="${esc(Math.round(num(it.dosesPorDia) * 1e4) / 1e4)}"></label>
+          <label class="f">Unidades por caixa<input data-k="unidadesPorCaixa" type="number" step="1" min="0" inputmode="numeric" value="${esc(it.unidadesPorCaixa || 30)}"></label>
+          <label class="f full">Posologia<textarea data-k="posologiaTexto">${esc(it.posologiaTexto)}</textarea></label>
+          <label class="f full">Salvar como<select data-k="_alvo"><option value="">Novo remédio</option>${state.remedios.map(r => `<option value="${esc(r.id)}" ${r.id === it._alvo ? "selected" : ""}>Atualizar: ${esc(nomeR(r))}</option>`).join("")}</select></label>
+        </div>
+        ${it.quantidadePrescrita || it.observacao ? `<p class="small muted">${esc([it.quantidadePrescrita, it.observacao].filter(Boolean).join(" · "))}</p>` : ""}
+      </div>`).join("")}
+      <div class="row"><button class="btn primary" type="submit">Salvar remédios</button><button class="btn" type="button" id="rxDescartar">Descartar leitura</button></div>
+    </form>
+  </div>`;
+}
+
+function bindReview(f) {
+  f.addEventListener("input", e => {
+    const box = e.target.closest(".rx-item"); const k = e.target.dataset.k; if (!box || !k) return;
+    const it = state.rxResult.itens[+box.dataset.i];
+    it[k] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    if (k === "_incluir") box.classList.toggle("off", !e.target.checked);
+  });
+  $("#rxDescartar").onclick = () => { state.rxResult = null; render(); };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const R = state.rxResult, medico = $("#xMed").value.trim(), dataRx = $("#xData").value;
+    const itens = R.itens.filter(it => it._incluir && String(it.nome || "").trim());
+    if (!itens.length) return toast("Marque ao menos um remédio.");
+    const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
+    try {
+      const ids = [];
+      for (const it of itens) {
+        const base = it._alvo ? state.remedios.find(r => r.id === it._alvo) || {} : {};
+        const data = {...strip(base), nome: String(it.nome).trim(), concentracao: String(it.concentracao || "").trim(),
+          unidade: UNIDADES.includes(it.unidade) ? it.unidade : (base.unidade || "comprimido"),
+          quantidadePorDose: num(it.quantidadePorDose), dosesPorDia: num(it.dosesPorDia), unidadesPorCaixa: num(it.unidadesPorCaixa) || num(base.unidadesPorCaixa) || 30,
+          posologiaTexto: String(it.posologiaTexto || "").trim(), medico: medico || base.medico || "",
+          usoContinuo: it.usoContinuo !== false, ativo: true, dataReceita: dataRx || "",
+          atualizadoEm: new Date().toISOString(), criadoEm: base.criadoEm || new Date().toISOString()};
+        ids.push(await put("remedios", it._alvo || null, data));
+      }
+      await put("receitas", null, {data: dataRx || todayISO(), medico, crm: R.crm || "", itens: itens.map(it => [it.nome, it.concentracao].filter(Boolean).join(" ") + (it.posologiaTexto ? " — " + it.posologiaTexto : "")),
+        remedioIds: ids, assetId: state.rxAsset?.id || "", criadoEm: new Date().toISOString()});
+      state.rxResult = null; state.rxFiles = []; state.rxAsset = null;
+      toast(plural(ids.length, "remédio salvo", "remédios salvos") + ". Agora registre a compra.");
+      state.view = "painel"; location.hash = "painel"; render();
+    } catch (err) { btn.disabled = false; fail(err); }
+  };
+}
+
+function rxHistory() {
+  if (!state.loaded.receitas) return `<p class="muted small">Carregando…</p>`;
+  const list = state.receitas.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  if (!list.length) return `<p class="muted small">Nenhuma receita guardada ainda. As receitas lidas aparecem aqui com a foto, para mostrar na farmácia.</p>`;
+  return `<div class="rx-hist">${list.map(x => {
+    const dias = validISO(x.data) ? diffDays(x.data, todayISO()) : null;
+    return `<div class="rx-card">
+      ${x.assetId ? `<a href="/_blob/${esc(x.assetId)}" target="_blank" rel="noopener"><img alt="Foto da receita" src="/_blob/${esc(x.assetId)}"></a>` : `<div class="ph">sem foto</div>`}
+      <div><b>${fmtD(x.data)}</b>${x.medico ? ` · ${esc(x.medico)}` : ""}${x.crm ? ` <span class="small muted">CRM ${esc(x.crm)}</span>` : ""}
+        ${dias != null && dias > 150 ? ` <span class="pill s-breve">${plural(Math.floor(dias / 30), "mês", "meses")}</span>` : ""}
+        ${validISO(x.validade) ? `<br><span class="pill ${x.validade < todayISO() ? "s-acabou" : diffDays(todayISO(), x.validade) <= 7 ? "s-breve" : "s-ok"}">${x.validade < todayISO() ? "Vencida em " : "Válida até "}${fmtD(x.validade)}</span>` : ""}
+        ${x.token ? ` <span class="small">Token farmácia: <b>${esc(x.token)}</b></span>` : ""}
+        ${x.tipo ? `<br><span class="small muted">${esc(x.tipo)}</span>` : ""}
+        <ul class="small" style="margin:4px 0 0;padding-left:18px">${(x.itens || []).map(i => `<li>${esc(i)}</li>`).join("")}</ul>
+        <button class="btn ghost small" type="button" data-act="delrx" data-id="${esc(x.id)}" style="padding:0;min-height:32px">Apagar receita</button>
+      </div></div>`;
+  }).join("")}</div>`;
+}
+
+/* ---------- compras ---------- */
+function renderCompras() {
+  const el = $("#v-compras");
+  if (!state.loaded.compras) { el.innerHTML = `<div class="row muted"><span class="spin"></span> Carregando…</div>`; return; }
+  const list = state.compras.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  const rows = list.map(c => {
+    const r = state.remedios.find(x => x.id === c.remedioId);
+    const d = r ? diario(r) : 0, un = num(c.caixas) * num(c.unidadesPorCaixa);
+    return `<tr><td class="num">${fmtD(c.data)}</td><td>${r ? esc(nomeR(r)) : `<span class="muted">remédio apagado</span>`}${c.farmacia ? `<br><span class="small muted">${esc(c.farmacia)}</span>` : ""}</td>
+      <td class="r">${NUM.format(num(c.caixas))} × ${NUM.format(num(c.unidadesPorCaixa))}</td><td class="r">${BRL.format(num(c.valorCaixa))}</td>
+      <td class="r"><b>${BRL.format(num(c.caixas) * num(c.valorCaixa))}</b></td><td class="r">${d ? plural(Math.floor(un / d), "dia") : "—"}</td>
+      <td class="r"><button class="btn ghost" type="button" data-act="editcp" data-id="${esc(c.id)}" style="min-height:32px">Editar</button><button class="btn ghost" type="button" data-act="delcp" data-id="${esc(c.id)}" style="min-height:32px;color:var(--bad)">Apagar</button></td></tr>`;
+  }).join("");
+  el.innerHTML = `<div class="row between"><h2>Histórico de compras</h2><button class="btn primary" type="button" data-act="comprar">+ Registrar compra</button></div>
+    ${list.length ? `<div class="panel"><div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Remédio</th><th class="r">Cx × un.</th><th class="r">R$/cx</th><th class="r">Total</th><th class="r">Dura</th><th class="r"><span hidden>Ações</span></th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`
+    : `<div class="empty"><p>Nenhuma compra registrada. Ao registrar, informe a data, quantas caixas e o valor de cada caixa. O app calcula quantos dias a compra dura.</p></div>`}`;
+}
+
+/* ---------- gastos ---------- */
+function renderGastos() {
+  const el = $("#v-gastos");
+  const list = sorted().filter(x => x.c.diario);
+  const hl = sortedH();
+  const totalR = list.reduce((s, x) => s + (x.c.mensal || 0), 0);
+  const totalH = hl.reduce((s, x) => s + (x.c.mensal || 0), 0);
+  const total = totalR + totalH;
+  const t = todayISO(), [Y, M] = t.split("-").map(Number);
+  const months = [];
+  for (let i = 5; i >= 0; i--) { const d = new Date(Y, M - 1 - i, 1); months.push({k: d.getFullYear() + "-" + pad(d.getMonth() + 1), l: d.toLocaleDateString("pt-BR", {month: "short"}).replace(".", ""), v: 0, r: 0, h: 0}); }
+  for (const c of state.compras) { const m = months.find(m => String(c.data).startsWith(m.k)); if (m) { const x = num(c.caixas) * num(c.valorCaixa); m.v += x; m.r += x; } }
+  for (const c of state.higieneCompras) { const m = months.find(m => String(c.data).startsWith(m.k)); if (m) { const x = num(c.quantidade) * num(c.valorUnit); m.v += x; m.h += x; } }
+  const max = Math.max(1, ...months.map(m => m.v), total);
+  const cur = months[5].v, media = months.slice(0, 5).filter(m => m.v).reduce((s, m, _, a) => s + m.v / a.length, 0);
+  el.innerHTML = `
+    <div class="panel">
+      <div><h2>Custo mensal estimado</h2><p class="small muted">Remédios: consumo de 30 dias pela posologia × preço da última compra. Higiene: quanto cada embalagem dura × preço da última compra.</p></div>
+      ${list.length ? `<div class="tbl-wrap"><table>
+        <thead><tr><th>Remédio</th><th class="r">Uso/dia</th><th class="r">Cx/mês</th><th class="r">R$/unid.</th><th class="r">R$/mês</th></tr></thead>
+        <tbody>${list.map(({r, c}) => `<tr><td>${esc(nomeR(r))}</td><td class="r">${NUM.format(c.diario)}</td><td class="r">${c.caixasMes ? NUM.format(c.caixasMes) : "—"}</td>
+          <td class="r">${c.custoUnit ? BRL.format(c.custoUnit) : "—"}</td><td class="r"><b>${c.mensal != null ? BRL.format(c.mensal) : "sem preço"}</b></td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="4">Remédios por mês</td><td class="r">${BRL.format(totalR)}</td></tr></tfoot>
+      </table></div>` : `<p class="muted">Cadastre remédios e registre compras para ver o custo.</p>`}
+      ${hl.length ? `<div class="tbl-wrap"><table>
+        <thead><tr><th>Higiene</th><th class="r">Dura</th><th class="r">Emb./mês</th><th class="r">R$/emb.</th><th class="r">R$/mês</th></tr></thead>
+        <tbody>${hl.map(({p, c}) => `<tr><td>${esc(p.nome)}</td><td class="r">${c.duracao ? plural(Math.round(c.duracao), "dia") : "—"}</td><td class="r">${c.diario ? NUM.format(c.diario * 30) : "—"}</td>
+          <td class="r">${c.preco ? BRL.format(c.preco) : "—"}</td><td class="r"><b>${c.mensal != null ? BRL.format(c.mensal) : "sem dados"}</b></td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="4">Higiene por mês</td><td class="r">${BRL.format(totalH)}</td></tr></tfoot>
+      </table></div>` : ""}
+      <div class="row between" style="border-top:2px solid var(--line);padding-top:10px"><b>Total por mês</b><b class="num" style="font-size:1.2rem">${BRL.format(total)}</b></div>
+      <div class="row between muted small"><span>Projeção para 12 meses</span><span class="num">${BRL.format(total * 12)}</span></div>
+    </div>
+    <div class="panel">
+      <div class="row between"><h2>Gasto real por mês</h2><span class="small muted"><i class="key"></i>Remédios <i class="key h"></i>Higiene</span></div>
+      <div class="bars">${months.map((m, i) => `<div class="bar ${i === 5 ? "cur" : ""}" title="Remédios ${BRL.format(m.r)} · Higiene ${BRL.format(m.h)}"><span>${m.v ? BRL.format(m.v).replace(/,\d\d$/, "") : ""}</span><i class="h" style="height:${(m.h / max * 100).toFixed(1)}%"></i><i class="r" style="height:${(m.r / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
+      <div class="bar-l">${months.map(m => `<span>${esc(m.l)}</span>`).join("")}</div>
+      <p class="small">Este mês: <b class="num">${BRL.format(cur)}</b>${media ? ` · média dos meses anteriores: <b class="num">${BRL.format(media)}</b>` : ""}${total ? ` · estimado: <b class="num">${BRL.format(total)}</b>` : ""}</p>
+    </div>`;
+}
+
+/* ---------- higiene ---------- */
+const SUGESTOES = ["Fralda geriátrica","Lenço umedecido","Pomada para assadura","Creme hidratante","Sabonete","Shampoo","Papel higiênico","Absorvente geriátrico","Luva descartável","Álcool em gel","Creme dental","Desodorante"];
+const EMBALAGENS = ["pacote","unidade","frasco","caixa","rolo","tubo","fardo"];
+function calcH(p, extra) {
+  const cs = state.higieneCompras.filter(c => c.produtoId === p.id).concat(extra ? [extra] : [])
+    .filter(c => validISO(c.data)).sort((a, b) => a.data < b.data ? -1 : a.data > b.data ? 1 : 0);
+  const out = {compras: cs};
+  let dur = num(p.duracaoDias);
+  if (!dur && cs.length >= 2) {
+    // estima pela frequência de compra: dias entre a 1ª e a última ÷ embalagens compradas antes da última
+    const span = diffDays(cs[0].data, cs[cs.length - 1].data), q = cs.slice(0, -1).reduce((s, c) => s + num(c.quantidade), 0);
+    if (span > 0 && q > 0) { dur = span / q; out.estimada = true; }
+  }
+  out.duracao = dur || null;
+  out.diario = dur ? 1 / dur : 0;
+  const last = cs[cs.length - 1];
+  out.preco = last ? num(last.valorUnit) : null;
+  out.mensal = out.diario && out.preco ? out.diario * 30 * out.preco : null;
+  if (!cs.length) { out.status = "sem"; return out; }
+  out.ultima = last;
+  if (!out.diario) { out.status = "sos"; return out; }
+  const t = todayISO(); let stock = 0, prev = null;
+  for (const c of cs) { if (prev) stock = Math.max(0, stock - out.diario * Math.max(0, diffDays(prev, c.data))); stock += num(c.quantidade); prev = c.data; }
+  out.restante = Math.max(0, stock - out.diario * Math.max(0, diffDays(prev, t)));
+  out.dias = Math.floor(out.restante / out.diario + 1e-9);
+  out.fim = addDays(t, out.dias);
+  out.status = out.dias <= 0 ? "acabou" : out.dias <= 3 ? "urgente" : out.dias <= 7 ? "breve" : "ok";
+  return out;
+}
+function sortedH() {
+  return state.higiene.filter(p => p.ativo !== false).map(p => ({p, c: calcH(p)})).sort((a, b) =>
+    (ORDER[a.c.status] - ORDER[b.c.status]) || ((a.c.dias ?? 1e9) - (b.c.dias ?? 1e9)) || String(a.p.nome).localeCompare(String(b.p.nome)));
+}
+const LABEL_H = {...LABEL, sos: "Sem previsão", breve: "Acaba esta semana"};
+
+function renderHigiene() {
+  const el = $("#v-higiene");
+  if (!state.loaded.higiene || !state.loaded.higieneCompras) { el.innerHTML = `<div class="row muted"><span class="spin"></span> Carregando…</div>`; return; }
+  const list = sortedH();
+  const total = list.reduce((s, x) => s + (x.c.mensal || 0), 0);
+  const existentes = new Set(state.higiene.map(p => norm(p.nome)));
+  const sug = SUGESTOES.filter(n => !existentes.has(norm(n)));
+  const hist = state.higieneCompras.slice().sort((a, b) => String(b.data).localeCompare(String(a.data))).slice(0, 30);
+  el.innerHTML = `
+    <div class="row between"><div><h2>Produtos de higiene</h2><p class="small muted">Gasto mensal estimado: <b class="num">${BRL.format(total)}</b></p></div>
+      <div class="row"><button class="btn" type="button" data-act="hnovo">+ Novo produto</button><button class="btn primary" type="button" data-act="hcomprar" ${list.length ? "" : "disabled"}>+ Registrar compra</button></div></div>
+    ${list.length ? `<div class="panel"><div class="hyg-list">${list.map(({p, c}) => `<div class="hyg s-${c.status}">
+      <div style="min-width:0"><div class="row" style="gap:8px"><h3>${esc(p.nome)}</h3><span class="pill">${LABEL_H[c.status]}</span></div>
+        <p class="meta">${c.duracao ? `1 ${esc(p.embalagem || "unidade")} dura <b>${plural(Math.round(c.duracao * 10) / 10, "dia")}</b>${c.estimada ? " (estimado pelas compras)" : ""}` : "Informe quanto dura cada embalagem"}
+        ${c.fim ? ` · acaba em <b>${fmtD(c.fim)}</b>` : ""}${c.mensal != null ? ` · <b>${BRL.format(c.mensal)}</b>/mês` : ""}
+        ${c.ultima ? `<br>Última compra ${fmtD(c.ultima.data)}: ${NUM.format(num(c.ultima.quantidade))} × ${BRL.format(num(c.ultima.valorUnit))}${c.ultima.local ? " · " + esc(c.ultima.local) : ""}` : ""}</p></div>
+      <div class="act"><button class="btn primary" type="button" data-act="hcomprar" data-id="${esc(p.id)}">Compra</button><button class="btn" type="button" data-act="heditar" data-id="${esc(p.id)}">Editar</button></div>
+    </div>`).join("")}</div></div>`
+    : `<div class="empty"><div><h3>Controle de higiene</h3><p class="small muted">Cadastre os produtos que compra para a Dona Inês, diga quanto tempo cada embalagem costuma durar e registre as compras. O app mostra quando vai acabar e quanto você gasta por mês.</p></div></div>`}
+    ${sug.length ? `<div class="panel"><span class="eyebrow">Adicionar rápido</span><div class="chips">${sug.map(n => `<button class="chip" type="button" data-act="hnovo" data-nome="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div></div>` : ""}
+    ${hist.length ? `<div class="panel"><h2>Últimas compras de higiene</h2><div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Produto</th><th class="r">Qtd.</th><th class="r">R$/un.</th><th class="r">Total</th><th class="r"><span hidden>Ações</span></th></tr></thead>
+      <tbody>${hist.map(c => { const p = state.higiene.find(x => x.id === c.produtoId); return `<tr><td class="num">${fmtD(c.data)}</td><td>${p ? esc(p.nome) : `<span class="muted">produto apagado</span>`}${c.local ? `<br><span class="small muted">${esc(c.local)}</span>` : ""}</td>
+        <td class="r">${NUM.format(num(c.quantidade))}</td><td class="r">${BRL.format(num(c.valorUnit))}</td><td class="r"><b>${BRL.format(num(c.quantidade) * num(c.valorUnit))}</b></td>
+        <td class="r"><button class="btn ghost" type="button" data-act="heditcp" data-id="${esc(c.id)}" style="min-height:32px">Editar</button><button class="btn ghost" type="button" data-act="hdelcp" data-id="${esc(c.id)}" style="min-height:32px;color:var(--bad)">Apagar</button></td></tr>`; }).join("")}</tbody>
+    </table></div></div>` : ""}`;
+}
+
+function openProduto(id, nomeSug) {
+  const p = id ? state.higiene.find(x => x.id === id) : {nome: nomeSug || "", embalagem: /fralda|len[cç]o|absorvente|luva|papel/i.test(nomeSug || "") ? "pacote" : (nomeSug ? "unidade" : "pacote")};
+  if (!p) return;
+  openModal(head(id ? "Editar produto" : "Novo produto") + `<form class="form" id="fPr">
+    <label class="f full">Produto<input id="pNome" required value="${esc(p.nome)}" placeholder="Ex.: Fralda geriátrica G"></label>
+    <label class="f">Marca / detalhe (opcional)<input id="pMarca" value="${esc(p.marca)}" placeholder="Ex.: Tena, pacote c/ 8"></label>
+    <label class="f">Compro por<select id="pEmb">${EMBALAGENS.map(u => `<option ${u === (p.embalagem || "unidade") ? "selected" : ""}>${u}</option>`).join("")}</select></label>
+    <label class="f full">Cada embalagem dura quantos dias?<input id="pDur" type="number" inputmode="decimal" min="0" step="0.5" value="${esc(p.duracaoDias ?? "")}" placeholder="Ex.: 3 (deixe vazio para o app estimar pelas compras)"></label>
+    <label class="chk full"><input type="checkbox" id="pAtivo" ${p.ativo !== false ? "checked" : ""}> Ainda uso este produto</label>
+    <div class="row full"><button class="btn primary" type="submit">Salvar</button>${id ? `<button class="btn danger" type="button" id="pDel">Excluir</button>` : ""}<button class="btn" type="button" data-close>Cancelar</button></div>
+  </form>`, s => {
+    s.querySelector("#fPr").onsubmit = async e => {
+      e.preventDefault();
+      const data = {...strip(p), nome: s.querySelector("#pNome").value.trim(), marca: s.querySelector("#pMarca").value.trim(),
+        embalagem: s.querySelector("#pEmb").value, duracaoDias: num(s.querySelector("#pDur").value) || null,
+        ativo: s.querySelector("#pAtivo").checked, atualizadoEm: new Date().toISOString(), criadoEm: p.criadoEm || new Date().toISOString()};
+      if (!data.nome) return toast("Informe o nome do produto.");
+      try { await put("higiene", id, data); closeModal(); toast("Produto salvo."); } catch (err) { fail(err); }
+    };
+    const d = s.querySelector("#pDel");
+    d && (d.onclick = () => confirmBox("Excluir produto?", `${p.nome} e suas compras registradas serão apagados.`, "Excluir", async () => {
+      for (const c of state.higieneCompras.filter(c => c.produtoId === id)) await del("higieneCompras", c.id);
+      await del("higiene", id); toast("Produto excluído."); }));
+  });
+}
+
+function openCompraH(prodId, compraId) {
+  const lista = state.higiene.filter(p => p.ativo !== false).sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+  if (!lista.length) return toast("Cadastre um produto primeiro.");
+  const cp = compraId ? state.higieneCompras.find(c => c.id === compraId) : null;
+  const sel = cp ? cp.produtoId : (prodId || lista[0].id);
+  const lastOf = id => { const p = state.higiene.find(x => x.id === id); return p && calcH(p).ultima; };
+  const l0 = lastOf(sel);
+  openModal(head(cp ? "Editar compra" : "Compra de higiene") + `<form class="form" id="fHc">
+    <label class="f full">Produto<select id="hProd">${lista.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}</select></label>
+    <label class="f">Data<input id="hData" type="date" value="${esc(cp?.data || todayISO())}"></label>
+    <label class="f">Quantidade<input id="hQtd" type="number" inputmode="numeric" min="1" step="1" value="${esc(cp?.quantidade ?? 1)}"></label>
+    <label class="f">Valor de cada (R$)<input id="hVal" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(cp?.valorUnit ?? (l0 ? num(l0.valorUnit) : ""))}" placeholder="0,00"></label>
+    <label class="f">Onde comprou (opcional)<input id="hLoc" value="${esc(cp?.local ?? (l0?.local || ""))}"></label>
+    <div class="preview full" id="hPrev" aria-live="polite"></div>
+    <div class="row full"><button class="btn primary" type="submit">Salvar compra</button><button class="btn" type="button" data-close>Cancelar</button></div>
+  </form>`, s => {
+    const g = q => s.querySelector(q);
+    const upd = () => {
+      const p = state.higiene.find(x => x.id === g("#hProd").value); if (!p) return;
+      const q = num(g("#hQtd").value), v = num(g("#hVal").value);
+      const saved = state.higieneCompras; if (cp) state.higieneCompras = saved.filter(c => c.id !== cp.id);
+      const c = calcH(p, validISO(g("#hData").value) ? {produtoId: p.id, data: g("#hData").value, quantidade: q, valorUnit: v} : null); state.higieneCompras = saved;
+      g("#hPrev").innerHTML = `Total da compra: <b>${BRL.format(q * v)}</b>` + (c.duracao ? `<br>Dura cerca de <b>${plural(Math.floor(q * c.duracao), "dia")}</b>${c.fim ? `, até <b>${fmtD(c.fim)}</b>` : ""}.` : `<br>Informe no produto quanto dura cada ${esc(p.embalagem || "unidade")} para ver a duração.`)
+        + (c.mensal != null ? `<br>Custo mensal: <b>${BRL.format(c.mensal)}</b>.` : "");
+    };
+    g("#hProd").onchange = () => { if (!cp) { const l = lastOf(g("#hProd").value); g("#hVal").value = l ? num(l.valorUnit) : ""; g("#hLoc").value = l?.local || ""; } upd(); };
+    ["#hData","#hQtd","#hVal"].forEach(q => g(q).oninput = upd);
+    upd();
+    g("#fHc").onsubmit = async e => {
+      e.preventDefault();
+      const data = {produtoId: g("#hProd").value, data: g("#hData").value, quantidade: num(g("#hQtd").value), valorUnit: num(g("#hVal").value),
+        local: g("#hLoc").value.trim(), criadoEm: cp?.criadoEm || new Date().toISOString()};
+      if (!validISO(data.data) || data.quantidade <= 0) return toast("Informe data e quantidade.");
+      try { await put("higieneCompras", cp?.id, data); closeModal(); toast("Compra registrada."); } catch (err) { fail(err); }
+    };
+  });
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click", e => {
+  const go = e.target.closest("[data-go]"); if (go) { setView(go.dataset.go); return; }
+  const a = e.target.closest("[data-act]"); if (!a) return;
+  const id = a.dataset.id;
+  switch (a.dataset.act) {
+    case "comprar": openCompra(id); break;
+    case "editar": openRemedio(id); break;
+    case "novo": openRemedio(); break;
+    case "editcp": openCompra(null, id); break;
+    case "hnovo": openProduto(null, a.dataset.nome); break;
+    case "heditar": openProduto(id); break;
+    case "hcomprar": openCompraH(id); break;
+    case "heditcp": openCompraH(null, id); break;
+    case "hdelcp": confirmBox("Apagar compra?", "A compra de higiene será removida.", "Apagar", async () => { await del("higieneCompras", id); toast("Compra apagada."); }); break;
+    case "delcp": confirmBox("Apagar compra?", "A compra será removida e a duração do estoque recalculada.", "Apagar", async () => { await del("compras", id); toast("Compra apagada."); }); break;
+    case "delrx": confirmBox("Apagar receita?", "A receita sai do histórico. Os remédios cadastrados continuam.", "Apagar", async () => {
+      const x = state.receitas.find(r => r.id === id);
+      await del("receitas", id);
+      if (x?.assetId && state.assets) state.assets.delete(x.assetId).catch(() => {});
+      toast("Receita apagada."); }); break;
+  }
+});
+$("#btnCompraTopo").onclick = () => openCompra();
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => setView(b.dataset.view));
+function setView(v) { state.view = v; location.hash = v; render(); window.scrollTo({top: 0}); }
+function fromHash() { const h = location.hash.slice(1); if (VIEWS.includes(h)) state.view = h; }
+window.addEventListener("hashchange", () => { fromHash(); render(); });
+fromHash();
+
+/* ---------- inicialização ---------- */
+function startLocal() { state.mode = "local"; for (const k in state.loaded) state.loaded[k] = true; render(); }
+render();
+(async () => {
+  const C = window.claude;
+  if (!C || typeof C.use !== "function") return startLocal();
+  C.use("sample").then(s => { state.sample = s; if (s) s.limits().then(l => { state.limits = l; render(); }).catch(() => {}); render(); });
+  C.use("assets").then(a => state.assets = a).catch(() => {});
+  const db = await C.use("db");
+  if (!db) return startLocal();
+  state.db = db; state.mode = "db";
+  for (const col of ["remedios", "compras", "receitas", "higiene", "higieneCompras"]) {
+    db.collection(col).onSnapshot(snap => {
+      state[col] = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      state.loaded[col] = true; render();
+    }, err => { console.error(err); state.loaded[col] = true; render(); });
+  }
+  render();
+})();
+})();
+</script>
