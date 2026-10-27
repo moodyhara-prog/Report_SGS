@@ -577,7 +577,8 @@ function renderReceitas() {
   let h = `<div class="panel rx-upload">
     <div><h2>Enviar receita</h2><p class="muted small">Tire uma foto bem iluminada, de frente, com a receita inteira. Pode mandar mais de uma página (até ${maxN}).</p></div>
     <label class="drop" id="drop">
-      <b>Escolher foto ou tirar com a câmera</b>
+      <b>Escolher foto da galeria</b>
+      <span class="small muted">Tire a foto antes, com a câmera do celular, e depois escolha aqui.</span>
       <span class="small muted">Foto (JPG/PNG) ou PDF da receita digital (Memed etc.)</span>
       <input type="file" id="rxFile" accept="${esc((state.limits?.images?.mediaTypes?.join(",") || "image/*") + ",application/pdf")}" multiple ${canRead ? "" : "disabled"} style="max-width:100%">
     </label>
@@ -968,7 +969,7 @@ function renderCupom() {
   let h = head("Lançar pelo cupom");
   if (!cupom.result) {
     h += `<p class="small muted">Fotografe o cupom fiscal ou a nota inteira, sem dobras e com boa luz. O app identifica itens, quantidades e valores; você confere antes de salvar.</p>
-    <label class="drop"><b>Escolher foto do cupom</b><span class="small muted">Foto ou PDF da nota</span>
+    <label class="drop"><b>Escolher foto do cupom</b><span class="small muted">Tire a foto antes, com a câmera do celular, e escolha da galeria. Também aceita PDF da nota.</span>
       <input type="file" id="cpFile" accept="image/*,application/pdf" multiple ${canImg && !cupom.busy ? "" : "disabled"} style="max-width:100%"></label>
     ${cupom.files.length ? `<div class="thumbs">${cupom.files.map(f => `<img alt="Cupom" src="${esc(f.url)}">`).join("")}</div>` : ""}
     ${canImg ? "" : `<p class="small muted">Este aparelho não consegue enviar fotos para leitura. Registre a compra digitando os valores.</p>`}
