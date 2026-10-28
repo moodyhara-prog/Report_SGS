@@ -372,28 +372,42 @@ def gerar(destino):
     sec.header_distance = Cm(0.8)
     sec.footer_distance = Cm(0.6)
 
-    # Cabeçalho: logo SGS | título | logo cliente | bloco de controle
+    # Cabeçalho: logo SGS | logo cliente (lado a lado) | título | bloco de controle
     hdr = sec.header
     ht = hdr.add_table(rows=2, cols=4, width=Cm(17))
     sem_bordas(ht)
-    larguras(ht, [3.0, 8.4, 2.3, 3.3])
-    a, b, c, d = ht.rows[0].cells
+    larguras(ht, [3.1, 2.5, 6.9, 4.5])
+    a, c, b, d = ht.rows[0].cells
     a = a.merge(ht.rows[1].cells[0])
-    b = b.merge(ht.rows[1].cells[1])
-    c = c.merge(ht.rows[1].cells[2])
-    a.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_sgs.png"), width=Cm(3.0))
-    escrever(b, "INSPEÇÃO EM FÁBRICA", tam=7, cor=SECUND)
-    escrever(b.add_paragraph(), "RCF – RELATÓRIO DE CONTROLE NA FÁBRICA", tam=11.5, negrito=True)
-    c.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_cliente_axia.png"), width=Cm(1.9))
+    c = c.merge(ht.rows[1].cells[1])
+    b = b.merge(ht.rows[1].cells[2])
+    a.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_sgs.png"), height=Cm(1.25))
+    c.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_cliente_axia.png"), height=Cm(1.15))
     c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for cell in (a, b, c):
+    borda_celula(c, "left", BORDA, 8)
+    borda_celula(c, "right", BORDA, 8)
+    escrever(b, "INSPEÇÃO EM FÁBRICA", tam=7, cor=SECUND)
+    escrever(b.add_paragraph(), "RCF – Relatório de Controle", tam=11, negrito=True)
+    escrever(b.add_paragraph(), "na Fábrica", tam=11, negrito=True)
+    for cell in (a, c, b):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-        borda_celula(cell, "bottom", LARANJA, 18)
+    # filete laranja sob todo o cabeçalho (células mescladas incluídas)
+    for tc in ht.rows[1]._tr.findall(qn("w:tc")):
+        tcPr = tc.get_or_add_tcPr()
+        tcB = OxmlElement("w:tcBorders")
+        e = OxmlElement("w:bottom")
+        e.set(qn("w:val"), "single")
+        e.set(qn("w:sz"), "18")
+        e.set(qn("w:color"), LARANJA)
+        tcB.append(e)
+        tcPr.append(tcB)
+    for par in b.paragraphs:
+        par.paragraph_format.left_indent = Cm(0.2)
     sombrear(d, CINZA)
-    escrever(d, "Nº RCF-[SIGLA]-[0000]-[AAAA]", tam=8.5, negrito=True, cor=BRANCO)
+    escrever(d, "Nº RCF-[SIGLA]-[0000]-[AAAA]", tam=8, negrito=True, cor=BRANCO)
     d2 = ht.rows[1].cells[3]
-    borda_celula(d2, "bottom", LARANJA, 18)
-    escrever(d2, "Rev. [00]  ·  Emissão [DD/MM/AAAA]", tam=7.5, cor=SECUND)
+    escrever(d2, "Rev. [00]", tam=7.5, cor=SECUND)
+    escrever(d2.add_paragraph(), "Emissão [DD/MM/AAAA]", tam=7.5, cor=SECUND)
     paginacao(d2.add_paragraph())
     hdr.paragraphs[0].paragraph_format.space_after = Pt(0)
 
@@ -418,6 +432,8 @@ def gerar(destino):
     escrever(linha, "SGS do Brasil Ltda. · Inspeção Industrial  —  Documento controlado; reprodução parcial "
                     "proibida sem autorização da SGS.  ·  Cliente: AXIA Energia", tam=6.5, cor=SECUND)
     linha.paragraphs[0].paragraph_format.space_before = Pt(3)
+
+    espaco(doc, 4)
 
     # Identificação
     idt = doc.add_table(rows=2, cols=3)
