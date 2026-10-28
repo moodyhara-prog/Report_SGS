@@ -6,9 +6,8 @@ Uso:
 Logos lidos de ../assets/. Todo campo de preenchimento é um controle de
 conteúdo do Word (texto, data, lista suspensa, caixa de combinação ou foto),
 para o inspetor preencher sem desconfigurar o layout. Nº, revisão e data de
-emissão são preenchidos uma vez no quadro de identificação (pág. 1); o
-cabeçalho e o rodapé os repetem por campos REF apontando para indicadores
-(atualizados ao abrir o arquivo, ao gerar PDF ou com F9).
+emissão ficam só no quadro de identificação (pág. 1); cabeçalho e rodapé
+não têm campos a preencher.
 """
 import copy
 import sys
@@ -213,7 +212,7 @@ def escrever(cell_or_par, texto, tam=9, negrito=False, cor=TEXTO, alinh=None, it
 
 
 def campo(paragraph, instr, tam=8, negrito=False, resultado="1", cor=TEXTO):
-    """Insere campo do Word (PAGE, NUMPAGES, REF…)."""
+    """Insere campo do Word (PAGE, NUMPAGES)."""
     def r(tipo=None, texto=None):
         run = paragraph.add_run()
         run.font.size = Pt(tam)
@@ -269,12 +268,11 @@ def _el(tag, **attrs):
 
 
 def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=None,
-             opcoes=(), marcador=None):
+             opcoes=()):
     """Insere um controle de conteúdo (sdt) no parágrafo.
 
     tipo: "texto" | "data" | "lista" | "combo".
     guia: texto cinza exibido enquanto o campo está vazio.
-    marcador: nome de indicador em volta do campo, lido por campos REF.
     """
     _sdt_id[0] += 1
     sdt = OxmlElement("w:sdt")
@@ -314,13 +312,7 @@ def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=
     run.append(t)
     content.append(run)
     sdt.append(content)
-    if marcador:
-        _sdt_id[0] += 1
-        par._p.append(_el("w:bookmarkStart", id=str(_sdt_id[0]), name=marcador))
-        par._p.append(sdt)
-        par._p.append(_el("w:bookmarkEnd", id=str(_sdt_id[0])))
-    else:
-        par._p.append(sdt)
+    par._p.append(sdt)
     return sdt
 
 
@@ -357,12 +349,6 @@ def campo_celula(cell, guia, titulo=None, tipo="texto", tam=9, negrito=False, **
     p = cell.paragraphs[0]
     p.paragraph_format.space_after = Pt(0)
     controle(p, tipo, titulo or guia.strip("[]"), guia, tam=tam, negrito=negrito, **kw)
-
-
-def atualizar_campos_ao_abrir(doc):
-    """Faz o Word atualizar os campos REF (cabeçalho/rodapé) ao abrir o arquivo."""
-    settings = doc.settings.element
-    settings.append(_el("w:updateFields", val="true"))
 
 
 # ---------- blocos de layout ----------
@@ -436,7 +422,6 @@ def filete_inferior(row, cor=LARANJA, sz="18"):
 
 def gerar(destino):
     doc = Document()
-    atualizar_campos_ao_abrir(doc)
 
     st = doc.styles["Normal"]
     st.font.name = "Arial"
@@ -456,7 +441,7 @@ def gerar(destino):
     sec.header_distance = Cm(0.8)
     sec.footer_distance = Cm(0.6)
 
-    # Cabeçalho (somente leitura): logos | título | nº, rev., emissão, página
+    # Cabeçalho fixo: logos | título (paginação fica no rodapé)
     hdr = sec.header
     ht = hdr.add_table(rows=1, cols=4, width=Cm(17))
     sem_bordas(ht)
@@ -474,15 +459,6 @@ def gerar(destino):
         par.paragraph_format.left_indent = Cm(0.2)
     for cell in (a, c, b, d):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    p = d.paragraphs[0]
-    escrever(p, "Nº ", tam=8, negrito=True)
-    campo(p, "REF RCF_NUMERO \\* MERGEFORMAT", tam=8, negrito=True, resultado="RCF-[SIGLA]-[0000]-[AAAA]")
-    p = d.add_paragraph()
-    escrever(p, "Rev. ", tam=7.5, cor=SECUND)
-    campo(p, "REF RCF_REVISAO \\* MERGEFORMAT", tam=7.5, resultado="00")
-    escrever(p, "  ·  Emissão ", tam=7.5, cor=SECUND)
-    campo(p, "REF RCF_EMISSAO \\* MERGEFORMAT", tam=7.5, resultado="DD/MM/AAAA")
-    paginacao(d.add_paragraph())
     filete_inferior(ht.rows[0])
     hdr.paragraphs[0].paragraph_format.space_after = Pt(0)
 
@@ -501,10 +477,7 @@ def gerar(destino):
     borda_celula(pg, "top", BORDA, 6)
     p = pg.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    campo(p, "REF RCF_NUMERO \\* MERGEFORMAT", tam=6.5, resultado="RCF-[SIGLA]-[0000]-[AAAA]", cor=SECUND)
-    pp = pg.add_paragraph()
-    pp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    paginacao(pp)
+    paginacao(p)
     linha = r1.cells[0].merge(r1.cells[1]).merge(r1.cells[2])
     escrever(linha, "SGS do Brasil Ltda. · Inspeção Industrial  —  Documento controlado; reprodução parcial "
                     "proibida sem autorização da SGS.  ·  Cliente: AXIA Energia", tam=6.5, cor=SECUND)
@@ -523,10 +496,10 @@ def gerar(destino):
     for cell in r:
         sombrear(cell, FUNDO)
     controle(rotulo(r[0], "Número do relatório"), "texto", "Nº do relatório", "RCF-[SIGLA]-[0000]-[AAAA]",
-             tam=11, negrito=True, marcador="RCF_NUMERO")
-    controle(rotulo(r[1], "Revisão"), "texto", "Revisão", "00", tam=11, negrito=True, marcador="RCF_REVISAO")
+             tam=11, negrito=True)
+    controle(rotulo(r[1], "Revisão"), "texto", "Revisão", "00", tam=11, negrito=True)
     controle(rotulo(r[2], "Data de emissão"), "data", "Data de emissão", "Escolher data ▾",
-             tam=11, negrito=True, marcador="RCF_EMISSAO")
+             tam=11, negrito=True)
     campos = [
         ("Documento de aquisição", "Contrato / pedido nº", "texto"),
         ("Item / lista de material", "Item ou LM", "texto"),
