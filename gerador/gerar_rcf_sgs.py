@@ -3,8 +3,11 @@
 Uso:
     python3 gerar_rcf_sgs.py <saida.docx>
 
-Logos lidos de ../assets/. Campos entre colchetes são para preenchimento;
-a coluna Situação e o resultado geral são listas suspensas.
+Logos lidos de ../assets/. Todo campo de preenchimento é um controle de
+conteúdo do Word (texto, data, lista suspensa, caixa de combinação ou foto),
+para o inspetor preencher sem desconfigurar o layout. Nº, revisão e data de
+emissão são digitados uma vez no quadro de identificação (pág. 1) e
+repetidos automaticamente no cabeçalho e no rodapé (vinculação a XML).
 """
 import copy
 import sys
@@ -12,8 +15,10 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.part import Part
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -41,6 +46,21 @@ SITUACOES_ITEM = [
 ]
 SITUACOES_GERAL = ["APROVADO", "APROVADO APÓS CORREÇÕES", "NÃO APROVADO", "IMPRODUTIVO"]
 STATUS_PENDENCIA = ["Aberta", "Em tratamento", "Encerrada", "N/A"]
+TIPOS_ENSAIO = ["de rotina", "de tipo", "especiais", "de rotina e de tipo"]
+RESULTADO_PARECER = ["conformes", "não conformes", "conformes com ressalvas"]
+
+# Textos-padrão dos ensaios testemunhados (seção 5); a caixa de combinação
+# também oferece todos os controles da tabela e aceita texto livre.
+TESTEMUNHOS = [
+    "Fator de potência do isolamento e capacitância das buchas",
+    "Resistência de isolamento dos enrolamentos",
+    "Resistência de isolamento do núcleo",
+    "Relação de transformação: AT × BT; BT × terciário; AT × terciário",
+    "Resistência ôhmica dos enrolamentos de AT, BT e terciário",
+    "Relação de transformação dos TCs",
+    "Resistência de enrolamento dos TCs",
+    "Resistência de isolamento dos TCs",
+]
 
 # (item, controle, situação) — None em situação = linha de grupo
 CONTROLES = [
@@ -193,12 +213,6 @@ def escrever(cell_or_par, texto, tam=9, negrito=False, cor=TEXTO, alinh=None, it
     return run
 
 
-def rotulo_valor(cell, rotulo, valor):
-    escrever(cell, rotulo.upper(), tam=6.5, cor=SECUND)
-    p = cell.add_paragraph()
-    escrever(p, valor, tam=9, negrito=True)
-
-
 def campo(paragraph, instr, tam=8, negrito=False):
     """Insere campo do Word (PAGE, NUMPAGES)."""
     def r(tipo=None, texto=None):
@@ -224,62 +238,146 @@ def campo(paragraph, instr, tam=8, negrito=False):
     r("end")
 
 
+# ---------- controles de conteúdo ----------
+
+NS_RCF = "urn:sgs:rcf"
+STORE_ID = "{6C3C8BC8-F283-45AE-878A-BAB7291924A1}"
+BRANCO = RGBColor(0xFF, 0xFF, 0xFF)
+PLACEHOLDER = "8A8B8E"
+
 _sdt_id = [1000]
 
 
-def lista_suspensa(cell, opcoes, valor, tam=8.5, negrito=True, titulo="Situação", alinh=WD_ALIGN_PARAGRAPH.CENTER):
-    """Controle de conteúdo do tipo lista suspensa dentro da célula.
-
-    opcoes: lista de (valor_exibido_na_celula, texto_na_lista) ou strings.
-    """
-    opcoes = [(o, o) if isinstance(o, str) else o for o in opcoes]
-    p = cell.paragraphs[0]
-    p.alignment = alinh
-    p.paragraph_format.space_after = Pt(0)
-    _sdt_id[0] += 1
-
-    sdt = OxmlElement("w:sdt")
-    pr = OxmlElement("w:sdtPr")
+def _rpr(tam, negrito=False, cor=None, italico=False):
     rpr = OxmlElement("w:rPr")
     if negrito:
         rpr.append(OxmlElement("w:b"))
+    if italico:
+        rpr.append(OxmlElement("w:i"))
+    if cor:
+        c = OxmlElement("w:color")
+        c.set(qn("w:val"), cor)
+        rpr.append(c)
     sz = OxmlElement("w:sz")
     sz.set(qn("w:val"), str(int(tam * 2)))
     rpr.append(sz)
-    pr.append(rpr)
-    alias = OxmlElement("w:alias")
-    alias.set(qn("w:val"), titulo)
-    pr.append(alias)
-    tag = OxmlElement("w:tag")
-    tag.set(qn("w:val"), titulo.lower().replace(" ", "_"))
-    pr.append(tag)
-    i = OxmlElement("w:id")
-    i.set(qn("w:val"), str(_sdt_id[0]))
-    pr.append(i)
-    dd = OxmlElement("w:dropDownList")
-    exibido = None
-    for val, txt in opcoes:
-        li = OxmlElement("w:listItem")
-        li.set(qn("w:displayText"), val)
-        li.set(qn("w:value"), val)
-        dd.append(li)
-        if val == valor:
-            exibido = val
-    dd.set(qn("w:lastValue"), exibido or "")
-    pr.append(dd)
+    return rpr
+
+
+def _el(tag, **attrs):
+    e = OxmlElement(tag)
+    for k, v in attrs.items():
+        e.set(qn(f"w:{k}"), v)
+    return e
+
+
+def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=None,
+             opcoes=(), vinculo=None, travar_conteudo=False):
+    """Insere um controle de conteúdo (sdt) no parágrafo.
+
+    tipo: "texto" | "data" | "lista" | "combo".
+    guia: texto cinza exibido enquanto o campo está vazio.
+    vinculo: nome do nó em customXml (repete o valor em outros controles).
+    """
+    _sdt_id[0] += 1
+    sdt = OxmlElement("w:sdt")
+    pr = OxmlElement("w:sdtPr")
+    pr.append(_rpr(tam, negrito, cor))
+    pr.append(_el("w:alias", val=titulo))
+    pr.append(_el("w:tag", val=titulo.lower().replace(" ", "_")))
+    pr.append(_el("w:id", val=str(_sdt_id[0])))
+    pr.append(_el("w:lock", val="sdtContentLocked" if travar_conteudo else "sdtLocked"))
+    if valor is None:
+        pr.append(OxmlElement("w:showingPlcHdr"))
+    if vinculo:
+        pr.append(_el("w:dataBinding", prefixMappings=f"xmlns:ns0='{NS_RCF}'",
+                      xpath=f"/ns0:rcf[1]/ns0:{vinculo}[1]", storeItemID=STORE_ID))
+    if tipo == "texto":
+        pr.append(OxmlElement("w:text"))
+    elif tipo == "data":
+        d = OxmlElement("w:date")
+        d.append(_el("w:dateFormat", val="dd/MM/yyyy"))
+        d.append(_el("w:lid", val="pt-BR"))
+        d.append(_el("w:storeMappedDataAs", val="text"))
+        d.append(_el("w:calendar", val="gregorian"))
+        pr.append(d)
+    elif tipo in ("lista", "combo"):
+        lst = OxmlElement("w:dropDownList" if tipo == "lista" else "w:comboBox")
+        for o in opcoes:
+            lst.append(_el("w:listItem", displayText=o, value=o))
+        pr.append(lst)
     sdt.append(pr)
 
     content = OxmlElement("w:sdtContent")
     run = OxmlElement("w:r")
-    rpr2 = copy.deepcopy(rpr)
-    run.append(rpr2)
+    if valor is None:
+        run.append(_rpr(tam, negrito, PLACEHOLDER, italico=True))
+    else:
+        run.append(_rpr(tam, negrito, cor))
     t = OxmlElement("w:t")
-    t.text = exibido if exibido else "Escolher ▾"
+    t.set(qn("xml:space"), "preserve")
+    t.text = valor if valor is not None else guia
     run.append(t)
     content.append(run)
     sdt.append(content)
-    p._p.append(sdt)
+    par._p.append(sdt)
+    return sdt
 
+
+def controle_foto(par, largura_cm, altura_cm):
+    """Controle de imagem: clique no ícone e a foto se ajusta ao quadro."""
+    _sdt_id[0] += 1
+    run = par.add_run()
+    run.add_picture(str(ASSETS / "foto_placeholder.png"), width=Cm(largura_cm), height=Cm(altura_cm))
+    r = run._r
+    par._p.remove(r)
+    sdt = OxmlElement("w:sdt")
+    pr = OxmlElement("w:sdtPr")
+    pr.append(_el("w:alias", val="Foto"))
+    pr.append(_el("w:tag", val="foto"))
+    pr.append(_el("w:id", val=str(_sdt_id[0])))
+    pr.append(_el("w:lock", val="sdtLocked"))
+    pr.append(OxmlElement("w:showingPlcHdr"))
+    pr.append(OxmlElement("w:picture"))
+    sdt.append(pr)
+    content = OxmlElement("w:sdtContent")
+    content.append(r)
+    sdt.append(content)
+    par._p.append(sdt)
+
+
+def lista_suspensa(cell, opcoes, valor=None, tam=8.5, titulo="Situação", alinh=WD_ALIGN_PARAGRAPH.CENTER):
+    opcoes = [o[0] if isinstance(o, tuple) else o for o in opcoes]
+    p = cell.paragraphs[0]
+    p.alignment = alinh
+    controle(p, "lista", titulo, "Escolher ▾", tam=tam, negrito=True, valor=valor, opcoes=opcoes)
+
+
+def campo_celula(cell, guia, titulo=None, tipo="texto", tam=9, negrito=False, **kw):
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
+    controle(p, tipo, titulo or guia.strip("[]"), guia, tam=tam, negrito=negrito, **kw)
+
+
+def adicionar_xml_vinculado(doc, campos):
+    """Cria o customXml que alimenta os controles vinculados (nº, rev., emissão)."""
+    package = doc.part.package
+    nos = "".join(f"<{c}/>" for c in campos)
+    item = Part(package.next_partname("/customXml/item%d.xml"), "application/xml",
+                f'<?xml version="1.0" encoding="UTF-8" standalone="no"?><rcf xmlns="{NS_RCF}">{nos}</rcf>'.encode(),
+                package)
+    props = Part(package.next_partname("/customXml/itemProps%d.xml"),
+                 "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
+                 ('<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
+                  f'<ds:datastoreItem ds:itemID="{STORE_ID}" '
+                  'xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml">'
+                  f'<ds:schemaRefs><ds:schemaRef ds:uri="{NS_RCF}"/></ds:schemaRefs></ds:datastoreItem>').encode(),
+                 package)
+    item.relate_to(props, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps")
+    doc.part.relate_to(item, RT.CUSTOM_XML)
+
+
+# ---------- blocos de layout ----------
 
 def titulo_secao(doc, numero, texto):
     t = doc.add_table(rows=1, cols=2)
@@ -287,7 +385,7 @@ def titulo_secao(doc, numero, texto):
     larguras(t, [0.9, 16.1])
     c0, c1 = t.rows[0].cells
     sombrear(c0, CINZA)
-    escrever(c0, numero, tam=10, negrito=True, cor=RGBColor(0xFF, 0xFF, 0xFF), alinh=WD_ALIGN_PARAGRAPH.CENTER)
+    escrever(c0, numero, tam=10, negrito=True, cor=BRANCO, alinh=WD_ALIGN_PARAGRAPH.CENTER)
     escrever(c1, texto.upper(), tam=10, negrito=True)
     borda_celula(c1, "bottom", LARANJA, 8)
     c0.vertical_alignment = c1.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -298,30 +396,23 @@ def espaco(doc, pts=6):
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.space_before = Pt(0)
-    r = p.add_run()
-    r.font.size = Pt(pts)
-    return p
-
-
-def paragrafo(doc, texto, tam=10, negrito=False):
-    p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(4)
-    p.paragraph_format.line_spacing = 1.15
-    escrever(p, texto, tam=tam, negrito=negrito)
-    p.paragraph_format.space_after = Pt(4)
+    p.add_run().font.size = Pt(pts)
     return p
 
 
 def tabela_simples(doc, cabecalho, linhas, cms, tam=9):
     t = doc.add_table(rows=1, cols=len(cabecalho))
     bordas_tabela(t)
-    hdr = t.rows[0]
-    repetir_cabecalho(hdr)
-    for c, txt in zip(hdr.cells, cabecalho):
+    repetir_cabecalho(t.rows[0])
+    for c, txt in zip(t.rows[0].cells, cabecalho):
         sombrear(c, FUNDO)
         escrever(c, txt, tam=tam - 0.5, negrito=True)
     for linha in linhas:
-        cells = t.add_row().cells
+        row = t.add_row()
+        row.height = Cm(0.5)
+        cells = row.cells
+        for c in cells:
+            c.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
         for c, txt in zip(cells, linha):
             if callable(txt):
                 txt(c)
@@ -331,20 +422,11 @@ def tabela_simples(doc, cabecalho, linhas, cms, tam=9):
     return t
 
 
-# ---------- montagem ----------
-
-BRANCO = RGBColor(0xFF, 0xFF, 0xFF)
-PLACEHOLDER = RGBColor(0x8A, 0x8B, 0x8E)
-
-
-def preencher(cell_or_par, texto="[preencher]", tam=9):
-    """Texto-guia em cinza itálico, para ser substituído no preenchimento."""
-    return escrever(cell_or_par, texto, tam=tam, cor=PLACEHOLDER, italico=True)
-
-
-def rotulo_campo(cell, rotulo, guia):
-    escrever(cell, rotulo.upper(), tam=6.5, cor=SECUND)
-    preencher(cell.add_paragraph(), guia, tam=9)
+def rotulo(cell, texto):
+    escrever(cell, texto.upper(), tam=6.5, cor=SECUND)
+    p = cell.add_paragraph()
+    p.paragraph_format.space_after = Pt(1)
+    return p
 
 
 def paginacao(par, tam=7.5):
@@ -354,14 +436,28 @@ def paginacao(par, tam=7.5):
     campo(par, "NUMPAGES", tam=tam, negrito=True)
 
 
+def filete_inferior(row, cor=LARANJA, sz="18"):
+    for tc in row._tr.findall(qn("w:tc")):
+        tcPr = tc.get_or_add_tcPr()
+        tcB = OxmlElement("w:tcBorders")
+        tcB.append(_el("w:bottom", val="single", sz=sz, color=cor))
+        tcPr.append(tcB)
+
+
+# ---------- montagem ----------
+
 def gerar(destino):
     doc = Document()
+    adicionar_xml_vinculado(doc, ["numero", "revisao", "emissao"])
 
     st = doc.styles["Normal"]
     st.font.name = "Arial"
     st.element.rPr.rFonts.set(qn("w:eastAsia"), "Arial")
     st.font.size = Pt(10)
     st.font.color.rgb = TEXTO
+    st.paragraph_format.space_after = Pt(0)
+    st.paragraph_format.space_before = Pt(0)
+    st.paragraph_format.line_spacing = 1.0
 
     sec = doc.sections[0]
     sec.orientation = WD_ORIENT.PORTRAIT
@@ -372,15 +468,12 @@ def gerar(destino):
     sec.header_distance = Cm(0.8)
     sec.footer_distance = Cm(0.6)
 
-    # Cabeçalho: logo SGS | logo cliente (lado a lado) | título | bloco de controle
+    # Cabeçalho (somente leitura): logos | título | nº, rev., emissão, página
     hdr = sec.header
-    ht = hdr.add_table(rows=2, cols=4, width=Cm(17))
+    ht = hdr.add_table(rows=1, cols=4, width=Cm(17))
     sem_bordas(ht)
     larguras(ht, [3.1, 2.5, 6.9, 4.5])
     a, c, b, d = ht.rows[0].cells
-    a = a.merge(ht.rows[1].cells[0])
-    c = c.merge(ht.rows[1].cells[1])
-    b = b.merge(ht.rows[1].cells[2])
     a.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_sgs.png"), height=Cm(1.25))
     c.paragraphs[0].add_run().add_picture(str(ASSETS / "logo_cliente_axia.png"), height=Cm(1.15))
     c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -389,42 +482,40 @@ def gerar(destino):
     escrever(b, "INSPEÇÃO EM FÁBRICA", tam=7, cor=SECUND)
     escrever(b.add_paragraph(), "RCF – Relatório de Controle", tam=11, negrito=True)
     escrever(b.add_paragraph(), "na Fábrica", tam=11, negrito=True)
-    for cell in (a, c, b):
-        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    # filete laranja sob todo o cabeçalho (células mescladas incluídas)
-    for tc in ht.rows[1]._tr.findall(qn("w:tc")):
-        tcPr = tc.get_or_add_tcPr()
-        tcB = OxmlElement("w:tcBorders")
-        e = OxmlElement("w:bottom")
-        e.set(qn("w:val"), "single")
-        e.set(qn("w:sz"), "18")
-        e.set(qn("w:color"), LARANJA)
-        tcB.append(e)
-        tcPr.append(tcB)
     for par in b.paragraphs:
         par.paragraph_format.left_indent = Cm(0.2)
-    sombrear(d, CINZA)
-    escrever(d, "Nº RCF-[SIGLA]-[0000]-[AAAA]", tam=8, negrito=True, cor=BRANCO)
-    d2 = ht.rows[1].cells[3]
-    escrever(d2, "Rev. [00]", tam=7.5, cor=SECUND)
-    escrever(d2.add_paragraph(), "Emissão [DD/MM/AAAA]", tam=7.5, cor=SECUND)
-    paginacao(d2.add_paragraph())
+    for cell in (a, c, b, d):
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    p = d.paragraphs[0]
+    escrever(p, "Nº ", tam=8, negrito=True)
+    controle(p, "texto", "Nº do relatório (cabeçalho)", "RCF-[SIGLA]-[0000]-[AAAA]", tam=8, negrito=True,
+             vinculo="numero", travar_conteudo=True)
+    p = d.add_paragraph()
+    escrever(p, "Rev. ", tam=7.5, cor=SECUND)
+    controle(p, "texto", "Revisão (cabeçalho)", "00", tam=7.5, vinculo="revisao", travar_conteudo=True)
+    escrever(p, "  ·  Emissão ", tam=7.5, cor=SECUND)
+    controle(p, "data", "Emissão (cabeçalho)", "DD/MM/AAAA", tam=7.5, vinculo="emissao", travar_conteudo=True)
+    paginacao(d.add_paragraph())
+    filete_inferior(ht.rows[0])
     hdr.paragraphs[0].paragraph_format.space_after = Pt(0)
 
-    # Rodapé: rubricas (inspetor SGS e fornecedor) em todas as páginas
+    # Rodapé: nome e rubrica dos responsáveis em todas as páginas
     ftr = sec.footer
     ft = ftr.add_table(rows=2, cols=3, width=Cm(17))
     sem_bordas(ft)
-    larguras(ft, [6.5, 6.5, 4.0])
+    larguras(ft, [6.6, 6.6, 3.8])
     r0, r1 = ft.rows
     for cell, quem in zip(r0.cells[:2], ["Inspetor SGS", "Representante do fornecedor"]):
         borda_celula(cell, "top", BORDA, 6)
-        escrever(cell, f"{quem.upper()}", tam=6.5, cor=SECUND)
+        escrever(cell, quem.upper(), tam=6.5, negrito=True, cor=SECUND)
+        escrever(cell.add_paragraph(), "Nome: ________________________", tam=7.5)
         escrever(cell.add_paragraph(), "Rubrica: ______________________", tam=7.5)
     pg = r0.cells[2]
     borda_celula(pg, "top", BORDA, 6)
-    pg.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    escrever(pg, "Nº RCF-[SIGLA]-[0000]-[AAAA]", tam=6.5, cor=SECUND)
+    p = pg.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    controle(p, "texto", "Nº do relatório (rodapé)", "RCF-[SIGLA]-[0000]-[AAAA]", tam=6.5, cor="5F6064",
+             vinculo="numero", travar_conteudo=True)
     pp = pg.add_paragraph()
     pp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     paginacao(pp)
@@ -435,20 +526,35 @@ def gerar(destino):
 
     espaco(doc, 4)
 
-    # Identificação
-    idt = doc.add_table(rows=2, cols=3)
+    # Quadro de identificação — único lugar onde nº, revisão e emissão são digitados
+    idt = doc.add_table(rows=5, cols=3)
     bordas_tabela(idt)
-    larguras(idt, [5.4, 5.4, 6.2])
+    larguras(idt, [5.6, 5.6, 5.8])
+    faixa = idt.rows[0].cells[0].merge(idt.rows[0].cells[1]).merge(idt.rows[0].cells[2])
+    sombrear(faixa, CINZA)
+    escrever(faixa, "IDENTIFICAÇÃO DO RELATÓRIO", tam=8, negrito=True, cor=BRANCO)
+    r = idt.rows[1].cells
+    for cell in r:
+        sombrear(cell, FUNDO)
+    controle(rotulo(r[0], "Número do relatório"), "texto", "Nº do relatório", "RCF-[SIGLA]-[0000]-[AAAA]",
+             tam=11, negrito=True, vinculo="numero")
+    controle(rotulo(r[1], "Revisão"), "texto", "Revisão", "00", tam=11, negrito=True, vinculo="revisao")
+    controle(rotulo(r[2], "Data de emissão"), "data", "Data de emissão", "Escolher data ▾",
+             tam=11, negrito=True, vinculo="emissao")
     campos = [
-        ("Documento de aquisição", "[Contrato / pedido nº]"),
-        ("Empreendimento", "[Nome do empreendimento]"),
-        ("Fornecedor / subfornecedor", "[Razão social]"),
-        ("PICQ nº", "[Código do PICQ]"),
-        ("Material", "[Descrição do equipamento]"),
-        ("Nº de série", "[Nº de série / PEP]"),
+        ("Documento de aquisição", "Contrato / pedido nº", "texto"),
+        ("Item / lista de material", "Item ou LM", "texto"),
+        ("PICQ nº", "Código do PICQ", "texto"),
+        ("Empreendimento", "Nome do empreendimento", "texto"),
+        ("Fornecedor / subfornecedor", "Razão social", "texto"),
+        ("Data da inspeção", "Escolher data ▾", "data"),
     ]
-    for cell, (r_, g) in zip(idt.rows[0].cells + idt.rows[1].cells, campos):
-        rotulo_campo(cell, r_, g)
+    cells = list(idt.rows[2].cells) + list(idt.rows[3].cells)
+    for cell, (rot, guia, tipo) in zip(cells, campos):
+        controle(rotulo(cell, rot), tipo, rot, guia, tam=9.5)
+    mat = idt.rows[4].cells[0].merge(idt.rows[4].cells[1])
+    controle(rotulo(mat, "Material"), "texto", "Material", "Descrição do equipamento (tensões, potência)", tam=9.5)
+    controle(rotulo(idt.rows[4].cells[2], "Nº de série / PEP"), "texto", "Nº de série", "Nº de série / PEP", tam=9.5)
     espaco(doc)
 
     # Situação geral (lista suspensa)
@@ -458,7 +564,7 @@ def gerar(destino):
     s0, s1 = sg.rows[0].cells
     sombrear(s0, FUNDO)
     escrever(s0, "SITUAÇÃO DA INSPEÇÃO", tam=9, negrito=True)
-    lista_suspensa(s1, SITUACOES_GERAL, None, tam=11, titulo="Situação geral", alinh=WD_ALIGN_PARAGRAPH.LEFT)
+    lista_suspensa(s1, SITUACOES_GERAL, tam=11, titulo="Situação geral", alinh=WD_ALIGN_PARAGRAPH.LEFT)
     for cell in (s0, s1):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     espaco(doc)
@@ -481,10 +587,14 @@ def gerar(destino):
             sombrear(m, FUNDO)
             borda_celula(m, "left", LARANJA, 24)
             escrever(m, f"{item}  ·  {ctrl}", tam=8.5, negrito=True)
+            m.paragraphs[0].paragraph_format.keep_with_next = True
         else:
+            row.height = Cm(0.5)
+            for cell in row.cells:
+                cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             escrever(c0, item, tam=8.5, cor=SECUND, alinh=WD_ALIGN_PARAGRAPH.CENTER)
             escrever(c1, ctrl, tam=8.5)
-            lista_suspensa(c2, SITUACOES_ITEM, None)
+            lista_suspensa(c2, SITUACOES_ITEM, titulo=f"Situação {item}")
     larguras(tc, [1.3, 12.9, 2.8])
     espaco(doc, 2)
     leg = doc.add_paragraph()
@@ -493,68 +603,78 @@ def gerar(destino):
     escrever(leg, "AP Aprovado · APC Aprovado após correções · NAP Não aprovado · NR Não realizado · "
                   "R Realizado · AL Aguardando laudo · AU Autorizado · NAU Não autorizado · IMP Improdutivo · "
                   "N/A Não aplicável", tam=7.5, cor=SECUND)
-
-    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+    espaco(doc, 10)
 
     titulo_secao(doc, "1", "Objetivo")
     p = doc.add_paragraph()
+    p.paragraph_format.line_spacing = 1.3
     escrever(p, "Atender à convocação ", tam=10)
-    preencher(p, "[nº da convocação]", tam=10)
+    controle(p, "texto", "Convocação nº", "nº da convocação", tam=10)
     escrever(p, ", de ", tam=10)
-    preencher(p, "[DD/MM/AAAA]", tam=10)
+    controle(p, "data", "Data da convocação", "data ▾", tam=10)
     escrever(p, ", para testemunhar a realização dos ensaios ", tam=10)
-    preencher(p, "[de rotina / de tipo / especiais]", tam=10)
+    controle(p, "combo", "Tipo de ensaio", "escolher ▾", tam=10, opcoes=TIPOS_ENSAIO)
     escrever(p, ", conforme PICQ aprovado.", tam=10)
     espaco(doc)
 
+    def txt(guia, titulo=None, tipo="texto", **kw):
+        return lambda c: campo_celula(c, guia, titulo, tipo, **kw)
+
     titulo_secao(doc, "2", "Documentos de referência")
-    vazio = lambda g: (lambda c: preencher(c, g))
     tabela_simples(doc, ["Código", "Título", "Revisão"], [
-        (vazio("[Código do PICQ]"), "Plano de Inspeção e Controle da Qualidade", vazio("[Rev.]")),
-        (vazio("[Norma ABNT / IEC]"), vazio("[Título da norma]"), vazio("[Ano]")),
-        (vazio("[ET do cliente]"), vazio("[Título]"), vazio("[Rev.]")),
-        (vazio("[Desenho / lista de materiais]"), vazio("[Título]"), vazio("[Rev.]")),
+        (txt("Código do PICQ"), "Plano de Inspeção e Controle da Qualidade", txt("Rev.", "Rev. PICQ")),
+        (txt("Norma ABNT / IEC"), txt("Título da norma"), txt("Ano", "Ano norma")),
+        (txt("ET do cliente"), txt("Título", "Título ET"), txt("Rev.", "Rev. ET")),
+        (txt("Desenho / lista de materiais"), txt("Título", "Título desenho"), txt("Rev.", "Rev. desenho")),
     ], [5.0, 9.5, 2.5])
     espaco(doc)
 
     titulo_secao(doc, "3", "Material inspecionado")
     tabela_simples(doc, ["Descrição", "Nº de série / PEP", "Quantidade"], [
-        (vazio("[Descrição do equipamento]"), vazio("[Nº de série]"), vazio("[Qtd.]")),
+        (txt("Descrição do equipamento"), txt("Nº de série"), txt("Qtd.")),
     ], [10.0, 4.5, 2.5])
     espaco(doc)
 
     titulo_secao(doc, "4", "Pendências")
     tabela_simples(doc, ["Nº", "Descrição da pendência", "Responsável", "Status ▾"], [
-        (f"{n:02d}", vazio("[Descrição]"), vazio("[Responsável]"),
-         lambda c: lista_suspensa(c, STATUS_PENDENCIA, None, titulo="Status pendência"))
+        (f"{n:02d}", txt("Descrever a pendência ou “Não há”", f"Pendência {n}"),
+         txt("Responsável", f"Responsável {n}"),
+         lambda c: lista_suspensa(c, STATUS_PENDENCIA, titulo="Status pendência"))
         for n in (1, 2, 3)
     ], [1.0, 10.0, 3.2, 2.8])
     espaco(doc)
 
     titulo_secao(doc, "5", "Ensaios testemunhados")
-    tabela_simples(doc, ["Ensaio", "Evidência (foto / boletim)", "Resultado ▾"], [
-        (vazio("[Ensaio testemunhado]"), vazio("[Foto nº / boletim]"),
-         lambda c: lista_suspensa(c, SITUACOES_ITEM, None, titulo="Resultado"))
-        for _ in range(6)
-    ], [10.0, 4.2, 2.8])
+    opcoes_ensaio = TESTEMUNHOS + [c for _, c, s in CONTROLES if s is not None and c not in TESTEMUNHOS]
+    linhas = [(lambda c, t=t: campo_celula(c, t, "Ensaio testemunhado", "combo", valor=t, opcoes=opcoes_ensaio),
+               txt("Foto nº / boletim", "Evidência"),
+               lambda c: lista_suspensa(c, SITUACOES_ITEM, titulo="Resultado"))
+              for t in TESTEMUNHOS]
+    linhas += [(txt("Escolher ou digitar o ensaio ▾", "Ensaio testemunhado", "combo", opcoes=opcoes_ensaio),
+                txt("Foto nº / boletim", "Evidência"),
+                lambda c: lista_suspensa(c, SITUACOES_ITEM, titulo="Resultado"))
+               for _ in range(2)]
+    tabela_simples(doc, ["Ensaio", "Evidência (foto / boletim)", "Resultado ▾"], linhas, [10.0, 4.2, 2.8])
     espaco(doc)
 
     titulo_secao(doc, "6", "Parecer técnico")
     pt_ = doc.add_table(rows=1, cols=1)
     bordas_tabela(pt_)
     larguras(pt_, [17])
+    nao_quebrar(pt_.rows[0])
     cell = pt_.rows[0].cells[0]
     sombrear(cell, "F7F7F8")
     borda_celula(cell, "left", LARANJA, 24)
     pp = cell.paragraphs[0]
-    pp.paragraph_format.line_spacing = 1.2
+    pp.paragraph_format.line_spacing = 1.3
     escrever(pp, "Os ensaios relacionados no item 5, realizados em ", tam=10)
-    preencher(pp, "[DD/MM/AAAA]", tam=10)
+    controle(pp, "data", "Data dos ensaios", "data ▾", tam=10)
     escrever(pp, ", foram testemunhados pela SGS e apresentaram resultados ", tam=10)
-    preencher(pp, "[conformes / não conformes]", tam=10)
+    controle(pp, "lista", "Resultado do parecer", "escolher ▾", tam=10, negrito=True, opcoes=RESULTADO_PARECER)
     escrever(pp, " aos critérios do PICQ e das normas de referência, conforme situação registrada na tabela "
                  "de controles. ", tam=10)
-    preencher(pp, "[Ensaios pendentes, próximas datas e observações.]", tam=10)
+    controle(pp, "texto", "Observações do parecer",
+             "Ensaios pendentes, próximas datas e observações.", tam=10)
     espaco(doc)
 
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
@@ -565,45 +685,28 @@ def gerar(destino):
         r_img = ft_.add_row()
         r_leg = ft_.add_row()
         nao_quebrar(r_img)
-        r_img.height = Cm(5.6)
         for j in range(2):
             ci = r_img.cells[j]
-            bordas = ("top", "left", "bottom", "right")
-            for lado in bordas:
-                borda_celula(ci, lado, BORDA, 6)
-            ci.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-            preencher(ci, "[Inserir foto – 8 cm de largura]", tam=8)
             ci.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
             ci.paragraphs[0].paragraph_format.keep_with_next = True
+            controle_foto(ci.paragraphs[0], 8.0, 4.5)
             cl = r_leg.cells[j]
-            escrever(cl, f"Foto {k + j + 1} – ", tam=8, negrito=True, alinh=WD_ALIGN_PARAGRAPH.CENTER)
-            preencher(cl, "[Objeto: ensaio]", tam=8)
-            cl.paragraphs[0].paragraph_format.space_after = Pt(8)
+            pl = cl.paragraphs[0]
+            escrever(pl, f"Foto {k + j + 1} – ", tam=8, negrito=True, alinh=WD_ALIGN_PARAGRAPH.CENTER)
+            controle(pl, "texto", f"Legenda foto {k + j + 1}", "Objeto: ensaio", tam=8)
+            pl.paragraph_format.space_after = Pt(8)
     larguras(ft_, [8.5, 8.5])
     p = doc.add_paragraph()
-    escrever(p, "Copie o par de linhas foto + legenda para incluir mais registros.", tam=7.5,
-             cor=PLACEHOLDER, italico=True)
-
-    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-    titulo_secao(doc, "8", "Aprovação")
-    at = doc.add_table(rows=2, cols=2)
-    sem_bordas(at)
-    larguras(at, [8.5, 8.5])
-    at.rows[0].height = Cm(1.8)
-    for cell, quem in zip(at.rows[1].cells, ["Representante do fornecedor", "Inspetor SGS"]):
-        borda_celula(cell, "top", "2B2C2E", 6)
-        escrever(cell, quem.upper(), tam=7.5, negrito=True, cor=SECUND, alinh=WD_ALIGN_PARAGRAPH.CENTER)
-        for rot in ("Nome", "Função / registro", "Data"):
-            q = cell.add_paragraph()
-            q.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            escrever(q, f"{rot}: ", tam=8, cor=SECUND)
-            preencher(q, "[preencher]", tam=8)
+    escrever(p, "Para mais registros: selecione as duas últimas linhas (foto + legenda), copie e cole abaixo.",
+             tam=7.5, cor=RGBColor(0x8A, 0x8B, 0x8E), italico=True)
     espaco(doc, 12)
 
-    titulo_secao(doc, "9", "Controle de revisões")
+    titulo_secao(doc, "8", "Controle de revisões")
     tabela_simples(doc, ["Rev.", "Data", "Descrição", "Elaborado", "Aprovado"], [
-        ("00", vazio("[DD/MM/AAAA]"), "Emissão inicial", vazio("[Inspetor]"), vazio("[Resp. técnico]")),
-        ("", "", "", "", ""),
+        ("00", txt("data ▾", "Data rev. 00", "data"), "Emissão inicial",
+         txt("Inspetor", "Elaborado rev. 00"), txt("Resp. técnico", "Aprovado rev. 00")),
+        (txt("01", "Rev."), txt("data ▾", "Data rev.", "data"), txt("Descrição da alteração", "Descrição rev."),
+         txt("Inspetor", "Elaborado rev."), txt("Resp. técnico", "Aprovado rev.")),
     ], [1.2, 2.7, 7.1, 3.0, 3.0])
 
     doc.save(destino)
