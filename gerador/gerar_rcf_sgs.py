@@ -6,8 +6,9 @@ Uso:
 Logos lidos de ../assets/. Todo campo de preenchimento é um controle de
 conteúdo do Word (texto, data, lista suspensa, caixa de combinação ou foto),
 para o inspetor preencher sem desconfigurar o layout. Nº, revisão e data de
-emissão são digitados uma vez no quadro de identificação (pág. 1) e
-repetidos automaticamente no cabeçalho e no rodapé (vinculação a XML).
+emissão são preenchidos uma vez no quadro de identificação (pág. 1); o
+cabeçalho e o rodapé os repetem por campos REF apontando para indicadores
+(atualizados ao abrir o arquivo, ao gerar PDF ou com F9).
 """
 import copy
 import sys
@@ -17,8 +18,6 @@ from docx import Document
 from docx.enum.section import WD_ORIENT
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
-from docx.opc.constants import RELATIONSHIP_TYPE as RT
-from docx.opc.part import Part
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -213,13 +212,13 @@ def escrever(cell_or_par, texto, tam=9, negrito=False, cor=TEXTO, alinh=None, it
     return run
 
 
-def campo(paragraph, instr, tam=8, negrito=False):
-    """Insere campo do Word (PAGE, NUMPAGES)."""
+def campo(paragraph, instr, tam=8, negrito=False, resultado="1", cor=TEXTO):
+    """Insere campo do Word (PAGE, NUMPAGES, REF…)."""
     def r(tipo=None, texto=None):
         run = paragraph.add_run()
         run.font.size = Pt(tam)
         run.bold = negrito
-        run.font.color.rgb = TEXTO
+        run.font.color.rgb = cor
         if tipo:
             fc = OxmlElement("w:fldChar")
             fc.set(qn("w:fldCharType"), tipo)
@@ -234,14 +233,12 @@ def campo(paragraph, instr, tam=8, negrito=False):
     r(texto=f" {instr} ")
     r("separate")
     run = r()
-    run.text = "1"
+    run.text = resultado
     r("end")
 
 
 # ---------- controles de conteúdo ----------
 
-NS_RCF = "urn:sgs:rcf"
-STORE_ID = "{6C3C8BC8-F283-45AE-878A-BAB7291924A1}"
 BRANCO = RGBColor(0xFF, 0xFF, 0xFF)
 PLACEHOLDER = "8A8B8E"
 
@@ -272,12 +269,12 @@ def _el(tag, **attrs):
 
 
 def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=None,
-             opcoes=(), vinculo=None, travar_conteudo=False):
+             opcoes=(), marcador=None):
     """Insere um controle de conteúdo (sdt) no parágrafo.
 
     tipo: "texto" | "data" | "lista" | "combo".
     guia: texto cinza exibido enquanto o campo está vazio.
-    vinculo: nome do nó em customXml (repete o valor em outros controles).
+    marcador: nome de indicador em volta do campo, lido por campos REF.
     """
     _sdt_id[0] += 1
     sdt = OxmlElement("w:sdt")
@@ -286,12 +283,9 @@ def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=
     pr.append(_el("w:alias", val=titulo))
     pr.append(_el("w:tag", val=titulo.lower().replace(" ", "_")))
     pr.append(_el("w:id", val=str(_sdt_id[0])))
-    pr.append(_el("w:lock", val="sdtContentLocked" if travar_conteudo else "sdtLocked"))
+    pr.append(_el("w:lock", val="sdtLocked"))
     if valor is None:
         pr.append(OxmlElement("w:showingPlcHdr"))
-    if vinculo:
-        pr.append(_el("w:dataBinding", prefixMappings=f"xmlns:ns0='{NS_RCF}'",
-                      xpath=f"/ns0:rcf[1]/ns0:{vinculo}[1]", storeItemID=STORE_ID))
     if tipo == "texto":
         pr.append(OxmlElement("w:text"))
     elif tipo == "data":
@@ -320,7 +314,13 @@ def controle(par, tipo, titulo, guia, tam=9, negrito=False, cor="2B2C2E", valor=
     run.append(t)
     content.append(run)
     sdt.append(content)
-    par._p.append(sdt)
+    if marcador:
+        _sdt_id[0] += 1
+        par._p.append(_el("w:bookmarkStart", id=str(_sdt_id[0]), name=marcador))
+        par._p.append(sdt)
+        par._p.append(_el("w:bookmarkEnd", id=str(_sdt_id[0])))
+    else:
+        par._p.append(sdt)
     return sdt
 
 
@@ -359,22 +359,10 @@ def campo_celula(cell, guia, titulo=None, tipo="texto", tam=9, negrito=False, **
     controle(p, tipo, titulo or guia.strip("[]"), guia, tam=tam, negrito=negrito, **kw)
 
 
-def adicionar_xml_vinculado(doc, campos):
-    """Cria o customXml que alimenta os controles vinculados (nº, rev., emissão)."""
-    package = doc.part.package
-    nos = "".join(f"<{c}/>" for c in campos)
-    item = Part(package.next_partname("/customXml/item%d.xml"), "application/xml",
-                f'<?xml version="1.0" encoding="UTF-8" standalone="no"?><rcf xmlns="{NS_RCF}">{nos}</rcf>'.encode(),
-                package)
-    props = Part(package.next_partname("/customXml/itemProps%d.xml"),
-                 "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
-                 ('<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
-                  f'<ds:datastoreItem ds:itemID="{STORE_ID}" '
-                  'xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml">'
-                  f'<ds:schemaRefs><ds:schemaRef ds:uri="{NS_RCF}"/></ds:schemaRefs></ds:datastoreItem>').encode(),
-                 package)
-    item.relate_to(props, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps")
-    doc.part.relate_to(item, RT.CUSTOM_XML)
+def atualizar_campos_ao_abrir(doc):
+    """Faz o Word atualizar os campos REF (cabeçalho/rodapé) ao abrir o arquivo."""
+    settings = doc.settings.element
+    settings.append(_el("w:updateFields", val="true"))
 
 
 # ---------- blocos de layout ----------
@@ -448,7 +436,7 @@ def filete_inferior(row, cor=LARANJA, sz="18"):
 
 def gerar(destino):
     doc = Document()
-    adicionar_xml_vinculado(doc, ["numero", "revisao", "emissao"])
+    atualizar_campos_ao_abrir(doc)
 
     st = doc.styles["Normal"]
     st.font.name = "Arial"
@@ -488,13 +476,12 @@ def gerar(destino):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     p = d.paragraphs[0]
     escrever(p, "Nº ", tam=8, negrito=True)
-    controle(p, "texto", "Nº do relatório (cabeçalho)", "RCF-[SIGLA]-[0000]-[AAAA]", tam=8, negrito=True,
-             vinculo="numero", travar_conteudo=True)
+    campo(p, "REF RCF_NUMERO \\* MERGEFORMAT", tam=8, negrito=True, resultado="RCF-[SIGLA]-[0000]-[AAAA]")
     p = d.add_paragraph()
     escrever(p, "Rev. ", tam=7.5, cor=SECUND)
-    controle(p, "texto", "Revisão (cabeçalho)", "00", tam=7.5, vinculo="revisao", travar_conteudo=True)
+    campo(p, "REF RCF_REVISAO \\* MERGEFORMAT", tam=7.5, resultado="00")
     escrever(p, "  ·  Emissão ", tam=7.5, cor=SECUND)
-    controle(p, "data", "Emissão (cabeçalho)", "DD/MM/AAAA", tam=7.5, vinculo="emissao", travar_conteudo=True)
+    campo(p, "REF RCF_EMISSAO \\* MERGEFORMAT", tam=7.5, resultado="DD/MM/AAAA")
     paginacao(d.add_paragraph())
     filete_inferior(ht.rows[0])
     hdr.paragraphs[0].paragraph_format.space_after = Pt(0)
@@ -514,8 +501,7 @@ def gerar(destino):
     borda_celula(pg, "top", BORDA, 6)
     p = pg.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    controle(p, "texto", "Nº do relatório (rodapé)", "RCF-[SIGLA]-[0000]-[AAAA]", tam=6.5, cor="5F6064",
-             vinculo="numero", travar_conteudo=True)
+    campo(p, "REF RCF_NUMERO \\* MERGEFORMAT", tam=6.5, resultado="RCF-[SIGLA]-[0000]-[AAAA]", cor=SECUND)
     pp = pg.add_paragraph()
     pp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     paginacao(pp)
@@ -537,10 +523,10 @@ def gerar(destino):
     for cell in r:
         sombrear(cell, FUNDO)
     controle(rotulo(r[0], "Número do relatório"), "texto", "Nº do relatório", "RCF-[SIGLA]-[0000]-[AAAA]",
-             tam=11, negrito=True, vinculo="numero")
-    controle(rotulo(r[1], "Revisão"), "texto", "Revisão", "00", tam=11, negrito=True, vinculo="revisao")
+             tam=11, negrito=True, marcador="RCF_NUMERO")
+    controle(rotulo(r[1], "Revisão"), "texto", "Revisão", "00", tam=11, negrito=True, marcador="RCF_REVISAO")
     controle(rotulo(r[2], "Data de emissão"), "data", "Data de emissão", "Escolher data ▾",
-             tam=11, negrito=True, vinculo="emissao")
+             tam=11, negrito=True, marcador="RCF_EMISSAO")
     campos = [
         ("Documento de aquisição", "Contrato / pedido nº", "texto"),
         ("Item / lista de material", "Item ou LM", "texto"),
